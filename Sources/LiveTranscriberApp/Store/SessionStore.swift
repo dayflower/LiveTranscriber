@@ -113,6 +113,15 @@ final class SessionStore {
     return finalURL
   }
 
+  // MARK: - Delete
+
+  /// Move a stored session's file to the Trash (recoverable via Finder).
+  /// The summary list updates immediately; the folder watcher re-scans anyway.
+  func trash(at url: URL) throws {
+    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+    summaries.removeAll { $0.url == url }
+  }
+
   // MARK: - Folder watching
 
   /// Call when the save folder setting changed.

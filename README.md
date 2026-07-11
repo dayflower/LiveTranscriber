@@ -23,7 +23,10 @@ Everything runs on your Mac using Apple's on-device speech recognition
 - **The save folder is the history**: the sidebar lists the folder's
   transcripts alongside the live session. Sessions started with saving off
   are kept in memory until the app quits (keep one via
-  File > Export Transcript…).
+  File > Export Transcript…). Delete a session with the trash button on the
+  selected sidebar row, the context menu, or the Delete key — after
+  confirmation, saved transcripts move to the Trash (recoverable) and
+  memory-only sessions are discarded.
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session.
 - **Estimated duration & auto-stop**: give a session an estimated length

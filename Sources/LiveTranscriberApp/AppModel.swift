@@ -165,6 +165,33 @@ final class AppModel {
     }
   }
 
+  // MARK: - Delete
+
+  /// Move a stored session's file to the Trash and drop it from the sidebar.
+  func trashFileSession(at url: URL) {
+    do {
+      try store.trash(at: url)
+    } catch {
+      recording.lastError = String(
+        localized:
+          "Could not move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
+      )
+      return
+    }
+    fileSessions[url] = nil
+    if selection == .file(url) {
+      selection = nil
+    }
+  }
+
+  /// Discard a memory-only session; there is no file, so this is final.
+  func removeMemorySession(_ session: TranscriptSession) {
+    memorySessions.removeAll { $0.id == session.id }
+    if selection == .memory(session.id) {
+      selection = nil
+    }
+  }
+
   // MARK: - Rename
 
   /// Persist a rename of a stored, completed session (frontmatter + file
