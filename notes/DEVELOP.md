@@ -110,7 +110,8 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 - **Forced finalization**: long continuous speech may defer finals
   indefinitely, so the engine finalizes the pending volatile region after N
   seconds of detected silence (default 2 s) and on a periodic timer (default
-  30 s). Both are settings.
+  30 s). Both are settings with independent on/off toggles; a disabled rule
+  reaches the pipeline as 0 seconds (its "off" sentinel).
 
 ## Sessions & persistence
 
@@ -144,6 +145,10 @@ object each tick (so mid-session edits of the estimate apply immediately):
 1. estimated duration elapsed **and** silence (from `SpeechDetector` via
    `SilenceTracker`) ≥ configured threshold → stop;
 2. hard limit (estimate + configurable margin) elapsed → stop unconditionally.
+
+Both rules have independent on/off toggles in Settings: disabling the silence
+rule passes 0 seconds to the monitor, disabling the hard limit leaves
+`session.hardLimit` nil (also when the estimate is edited mid-session).
 
 ## Calendar matching
 

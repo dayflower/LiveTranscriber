@@ -230,8 +230,8 @@ struct NewSessionSheet: View {
       localeIdentifier: localeID,
       microphoneID: microphoneEnabled && !microphoneID.isEmpty ? microphoneID : nil,
       appAudio: appAudioSource,
-      silenceFinalizeSeconds: settings.silenceFinalizeSeconds,
-      periodicFinalizeSeconds: settings.periodicFinalizeSeconds
+      silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
+      periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds
     )
 
     var sources: [String] = []
@@ -258,8 +258,9 @@ struct NewSessionSheet: View {
         configuration: configuration,
         sourceDescription: sources.joined(separator: " + "),
         estimatedDuration: estimated,
-        hardLimit: estimated.map { $0 + TimeInterval(settings.hardLimitExtraMinutes * 60) },
-        autoStopSilenceSeconds: settings.autoStopSilenceSeconds,
+        hardLimit: settings.hardLimitEnabled
+          ? estimated.map { $0 + TimeInterval(settings.hardLimitExtraMinutes * 60) } : nil,
+        autoStopSilenceSeconds: settings.effectiveAutoStopSilenceSeconds,
         saveToFile: saveToFile
       ))
     model.selectLiveSession()

@@ -72,26 +72,34 @@ private struct RecordingSettings: View {
     @Bindable var settings = model.settings
     Form {
       Section("Segment finalization") {
-        Stepper(value: $settings.silenceFinalizeSeconds, in: 0...10, step: 0.5) {
-          LabeledContent(
-            "Finalize after silence", value: secondsLabel(settings.silenceFinalizeSeconds))
+        Toggle("Finalize after silence", isOn: $settings.silenceFinalizeEnabled)
+        Stepper(value: $settings.silenceFinalizeSeconds, in: 0.5...10, step: 0.5) {
+          LabeledContent("Silence duration", value: secondsLabel(settings.silenceFinalizeSeconds))
         }
-        Stepper(value: $settings.periodicFinalizeSeconds, in: 0...120, step: 5) {
-          LabeledContent(
-            "Force-finalize interval", value: secondsLabel(settings.periodicFinalizeSeconds))
+        .dimmedWhenDisabled(enabled: settings.silenceFinalizeEnabled)
+
+        Toggle("Force-finalize periodically", isOn: $settings.periodicFinalizeEnabled)
+        Stepper(value: $settings.periodicFinalizeSeconds, in: 5...120, step: 5) {
+          LabeledContent("Interval", value: secondsLabel(settings.periodicFinalizeSeconds))
         }
+        .dimmedWhenDisabled(enabled: settings.periodicFinalizeEnabled)
       }
 
       Section("Automatic stop") {
+        Toggle("Stop after silence", isOn: $settings.autoStopSilenceEnabled)
         Stepper(value: $settings.autoStopSilenceSeconds, in: 10...600, step: 10) {
-          LabeledContent(
-            "Silence before auto-stop", value: secondsLabel(settings.autoStopSilenceSeconds))
+          LabeledContent("Silence duration", value: secondsLabel(settings.autoStopSilenceSeconds))
         }
+        .dimmedWhenDisabled(enabled: settings.autoStopSilenceEnabled)
+
+        Toggle("Hard time limit", isOn: $settings.hardLimitEnabled)
         Stepper(value: $settings.hardLimitExtraMinutes, in: 0...240, step: 5) {
-          LabeledContent("Hard limit margin", value: "\(settings.hardLimitExtraMinutes) min")
+          LabeledContent("Margin", value: "\(settings.hardLimitExtraMinutes) min")
         }
+        .dimmedWhenDisabled(enabled: settings.hardLimitEnabled)
+
         Text(
-          "Once the estimated duration has passed, recording auto-stops after the configured silence. The hard limit (estimated duration + margin) stops it even during speech."
+          "Both rules need an estimated duration. Once it has passed, recording stops after the configured silence; the hard limit (estimated duration + margin) stops it even during speech."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -101,6 +109,15 @@ private struct RecordingSettings: View {
   }
 
   private func secondsLabel(_ value: Double) -> String {
-    value <= 0 ? String(localized: "Off") : String(format: "%.0f s", value)
+    let format = value.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f s" : "%.1f s"
+    return String(format: format, value)
+  }
+}
+
+extension View {
+  /// `.disabled` alone does not dim a stepper's label text in a grouped form.
+  fileprivate func dimmedWhenDisabled(enabled: Bool) -> some View {
+    disabled(!enabled)
+      .foregroundStyle(enabled ? .primary : .tertiary)
   }
 }

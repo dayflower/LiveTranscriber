@@ -24,24 +24,40 @@ final class AppSettings {
     didSet { Self.defaults.set(timestampsEnabled, forKey: "timestampsEnabled") }
   }
 
-  /// Force-finalize after this many seconds of detected silence (0 = off).
+  /// Force-finalize after `silenceFinalizeSeconds` of detected silence.
+  var silenceFinalizeEnabled: Bool {
+    didSet { Self.defaults.set(silenceFinalizeEnabled, forKey: "silenceFinalizeEnabled") }
+  }
+
   var silenceFinalizeSeconds: Double {
     didSet { Self.defaults.set(silenceFinalizeSeconds, forKey: "silenceFinalizeSeconds") }
   }
 
-  /// Force-finalize every N seconds during continuous speech (0 = off).
+  /// Force-finalize every `periodicFinalizeSeconds` during continuous speech.
+  var periodicFinalizeEnabled: Bool {
+    didSet { Self.defaults.set(periodicFinalizeEnabled, forKey: "periodicFinalizeEnabled") }
+  }
+
   var periodicFinalizeSeconds: Double {
     didSet { Self.defaults.set(periodicFinalizeSeconds, forKey: "periodicFinalizeSeconds") }
   }
 
-  /// Once the estimated duration has passed, auto-stop after this much
-  /// continuous silence.
+  /// Once the estimated duration has passed, auto-stop after
+  /// `autoStopSilenceSeconds` of continuous silence.
+  var autoStopSilenceEnabled: Bool {
+    didSet { Self.defaults.set(autoStopSilenceEnabled, forKey: "autoStopSilenceEnabled") }
+  }
+
   var autoStopSilenceSeconds: Double {
     didSet { Self.defaults.set(autoStopSilenceSeconds, forKey: "autoStopSilenceSeconds") }
   }
 
-  /// Hard limit = estimated duration + this many minutes; recording stops
-  /// unconditionally past it.
+  /// Hard limit = estimated duration + `hardLimitExtraMinutes`; recording
+  /// stops unconditionally past it.
+  var hardLimitEnabled: Bool {
+    didSet { Self.defaults.set(hardLimitEnabled, forKey: "hardLimitEnabled") }
+  }
+
   var hardLimitExtraMinutes: Int {
     didSet { Self.defaults.set(hardLimitExtraMinutes, forKey: "hardLimitExtraMinutes") }
   }
@@ -53,10 +69,36 @@ final class AppSettings {
       ?? NSHomeDirectory().appending("/Documents/LiveTranscriber")
     formatID = d.string(forKey: "sessionFormat").flatMap(SessionFormatID.init) ?? .markdown
     timestampsEnabled = d.object(forKey: "timestampsEnabled") as? Bool ?? true
-    silenceFinalizeSeconds = d.object(forKey: "silenceFinalizeSeconds") as? Double ?? 2
-    periodicFinalizeSeconds = d.object(forKey: "periodicFinalizeSeconds") as? Double ?? 30
+
+    // Legacy convention stored 0 seconds for "off"; migrate that to the
+    // explicit toggles and keep the seconds at their defaults.
+    let storedSilence = d.object(forKey: "silenceFinalizeSeconds") as? Double
+    silenceFinalizeEnabled =
+      d.object(forKey: "silenceFinalizeEnabled") as? Bool ?? storedSilence.map { $0 > 0 } ?? true
+    silenceFinalizeSeconds = storedSilence.flatMap { $0 > 0 ? $0 : nil } ?? 2
+
+    let storedPeriodic = d.object(forKey: "periodicFinalizeSeconds") as? Double
+    periodicFinalizeEnabled =
+      d.object(forKey: "periodicFinalizeEnabled") as? Bool ?? storedPeriodic.map { $0 > 0 } ?? true
+    periodicFinalizeSeconds = storedPeriodic.flatMap { $0 > 0 ? $0 : nil } ?? 30
+
+    autoStopSilenceEnabled = d.object(forKey: "autoStopSilenceEnabled") as? Bool ?? true
     autoStopSilenceSeconds = d.object(forKey: "autoStopSilenceSeconds") as? Double ?? 60
+    hardLimitEnabled = d.object(forKey: "hardLimitEnabled") as? Bool ?? true
     hardLimitExtraMinutes = d.object(forKey: "hardLimitExtraMinutes") as? Int ?? 30
+  }
+
+  // The pipeline and the auto-stop monitor treat 0 as "off".
+  var effectiveSilenceFinalizeSeconds: Double {
+    silenceFinalizeEnabled ? silenceFinalizeSeconds : 0
+  }
+
+  var effectivePeriodicFinalizeSeconds: Double {
+    periodicFinalizeEnabled ? periodicFinalizeSeconds : 0
+  }
+
+  var effectiveAutoStopSilenceSeconds: Double {
+    autoStopSilenceEnabled ? autoStopSilenceSeconds : 0
   }
 
   var saveFolderURL: URL {

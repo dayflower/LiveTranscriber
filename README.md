@@ -29,7 +29,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
 - **Estimated duration & auto-stop**: give a session an estimated length
   (before or during recording). Once it has elapsed, the recording stops
   automatically after a stretch of silence; a hard limit (estimate + margin)
-  stops it even during speech.
+  stops it even during speech. Each rule can be switched off independently in
+  Settings.
 - **Calendar integration**: apply a calendar event's title and duration to a
   session with one click. Candidates are ranked by how close their start time
   is to the session start — a session started at 09:55 matches the 10:00

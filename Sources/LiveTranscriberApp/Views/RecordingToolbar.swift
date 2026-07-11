@@ -100,9 +100,9 @@ private struct EstimatedDurationMenu: View {
   private func apply(minutes: Int) {
     let estimated: TimeInterval? = minutes > 0 ? TimeInterval(minutes * 60) : nil
     session.estimatedDuration = estimated
-    session.hardLimit = estimated.map {
-      $0 + TimeInterval(model.settings.hardLimitExtraMinutes * 60)
-    }
+    session.hardLimit =
+      model.settings.hardLimitEnabled
+      ? estimated.map { $0 + TimeInterval(model.settings.hardLimitExtraMinutes * 60) } : nil
   }
 }
 
