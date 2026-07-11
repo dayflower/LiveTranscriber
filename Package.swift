@@ -14,21 +14,24 @@ let package = Package(
     .target(
       name: "LiveTranscriberCore",
       swiftSettings: [
-        .swiftLanguageMode(.v6)
+        .swiftLanguageMode(.v6),
+        .treatAllWarnings(as: .error),
       ]
     ),
     .executableTarget(
       name: "LiveTranscriberApp",
       dependencies: ["LiveTranscriberCore"],
       swiftSettings: [
-        .swiftLanguageMode(.v6)
+        .swiftLanguageMode(.v6),
+        .treatAllWarnings(as: .error),
       ]
     ),
     .testTarget(
       name: "LiveTranscriberTests",
       dependencies: ["LiveTranscriberApp"],
       swiftSettings: [
-        .swiftLanguageMode(.v6)
+        .swiftLanguageMode(.v6),
+        .treatAllWarnings(as: .error),
       ]
     ),
   ]
