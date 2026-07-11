@@ -105,6 +105,13 @@ public final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBu
       throw MicrophoneError.deviceNotFound(deviceID)
     }
 
+    try configureSession(with: device)
+    // Must be outside beginConfiguration/commitConfiguration, or
+    // AVCaptureSession throws NSGenericException.
+    session.startRunning()
+  }
+
+  private func configureSession(with device: AVCaptureDevice) throws {
     session.beginConfiguration()
     defer { session.commitConfiguration() }
 
@@ -120,8 +127,6 @@ public final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBu
       throw MicrophoneError.setupFailed("cannot add audio output")
     }
     session.addOutput(output)
-
-    session.startRunning()
   }
 
   public func stop() {
