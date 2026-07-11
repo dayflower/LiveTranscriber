@@ -38,8 +38,8 @@ final class AppModel {
     self.settings = settings
     self.store = SessionStore(settings: settings)
 
-    recording.onSessionStarted = { [weak self] session in
-      self?.beginWriting(session)
+    recording.onSessionStarted = { [weak self] session, plan in
+      self?.beginWriting(session, saveToFile: plan.saveToFile)
     }
     recording.onSegmentFinalized = { [weak self] _, segment in
       self?.writer?.append(segment)
@@ -90,10 +90,10 @@ final class AppModel {
 
   // MARK: - Recording wiring
 
-  private func beginWriting(_ session: TranscriptSession) {
+  private func beginWriting(_ session: TranscriptSession, saveToFile: Bool) {
     selection = .live(session.id)
     session.timestampsEnabled = settings.timestampsEnabled
-    guard settings.saveEnabled else { return }
+    guard saveToFile else { return }
     do {
       let writer = try SessionFileWriter(
         directory: settings.saveFolderURL,
@@ -125,7 +125,8 @@ final class AppModel {
         )
       }
     }
-    // Not saved (by settings, or the writer failed): keep it in memory.
+    // Not saved (by per-session choice, or the writer failed): keep it in
+    // memory.
     memorySessions.insert(session, at: 0)
     selection = .memory(session.id)
   }

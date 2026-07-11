@@ -22,8 +22,6 @@ private struct OutputSettings: View {
   var body: some View {
     @Bindable var settings = model.settings
     Form {
-      Toggle("Save transcripts automatically", isOn: $settings.saveEnabled)
-
       LabeledContent("Save folder") {
         HStack {
           Text(settings.saveFolderPath)
@@ -44,7 +42,7 @@ private struct OutputSettings: View {
       Toggle("Timestamps on log entries", isOn: $settings.timestampsEnabled)
 
       Text(
-        "The save folder is also the session history: files in it appear in the sidebar. Sessions recorded with saving off exist only until the app quits."
+        "The save folder is also the session history: files in it appear in the sidebar. Whether a session is saved is chosen when starting it; unsaved sessions exist only until the app quits."
       )
       .font(.caption)
       .foregroundStyle(.secondary)

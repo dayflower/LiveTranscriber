@@ -13,6 +13,7 @@ struct NewSessionSheet: View {
   @AppStorage("lastAppAudioEnabled") private var appAudioEnabled = false
   @AppStorage("lastAppSelection") private var appSelection = systemAudioTag
   @AppStorage("lastEstimatedMinutes") private var estimatedMinutes = 0
+  @AppStorage("lastSaveToFile") private var saveToFile = true
 
   @State private var sessionName = ""
   @State private var supportedLocales: [LocaleChoice] = []
@@ -95,6 +96,18 @@ struct NewSessionSheet: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         }
+
+        Section {
+          Toggle("Save transcript to file", isOn: $saveToFile)
+        } footer: {
+          Text(
+            saveToFile
+              ? "Written to \(model.settings.saveFolderPath) while recording."
+              : "Kept in memory only; it disappears when the app quits unless exported."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
       }
       .formStyle(.grouped)
 
@@ -108,7 +121,7 @@ struct NewSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 440, height: 460)
+    .frame(width: 440, height: 540)
     .task { await loadChoices() }
     .onChange(of: appAudioEnabled) {
       if appAudioEnabled {
@@ -228,7 +241,8 @@ struct NewSessionSheet: View {
         sourceDescription: sources.joined(separator: " + "),
         estimatedDuration: estimated,
         hardLimit: estimated.map { $0 + TimeInterval(settings.hardLimitExtraMinutes * 60) },
-        autoStopSilenceSeconds: settings.autoStopSilenceSeconds
+        autoStopSilenceSeconds: settings.autoStopSilenceSeconds,
+        saveToFile: saveToFile
       ))
     model.selectLiveSession()
     dismiss()

@@ -7,12 +7,9 @@ import Observation
 final class AppSettings {
   private static let defaults = UserDefaults.standard
 
-  /// Automatically save sessions to files in `saveFolderPath`. The folder is
-  /// also the session history: the sidebar lists its contents.
-  var saveEnabled: Bool {
-    didSet { Self.defaults.set(saveEnabled, forKey: "saveEnabled") }
-  }
-
+  /// The folder sessions are saved to. It is also the session history: the
+  /// sidebar lists its contents. Whether a session is saved at all is chosen
+  /// per session in the new-session sheet.
   var saveFolderPath: String {
     didSet { Self.defaults.set(saveFolderPath, forKey: "saveFolderPath") }
   }
@@ -51,7 +48,6 @@ final class AppSettings {
 
   init() {
     let d = Self.defaults
-    saveEnabled = d.object(forKey: "saveEnabled") as? Bool ?? true
     saveFolderPath =
       d.string(forKey: "saveFolderPath")
       ?? NSHomeDirectory().appending("/Documents/LiveTranscriber")

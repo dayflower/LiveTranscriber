@@ -130,9 +130,11 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 - Segment wall-clock timestamps prefer `sessionStart + audioStart` (the
   `.audioTimeRange` attribute) over the finalization time — closer to when the
   words were actually spoken.
-- Sessions recorded with saving off exist only in `AppModel.memorySessions`
-  and vanish on quit; File > Export Transcript… serializes one to a
-  user-chosen location.
+- Saving is a per-session choice made in the new-session sheet (carried in
+  `RecordingController.SessionPlan.saveToFile`, remembered via
+  `lastSaveToFile`). Sessions started with saving off exist only in
+  `AppModel.memorySessions` and vanish on quit; File > Export Transcript…
+  serializes one to a user-chosen location.
 
 ## Auto-stop
 

@@ -16,11 +16,12 @@ Everything runs on your Mac using Apple's on-device speech recognition
   mixed.
 - **Live transcript**: in-progress text updates in place; finalized text
   accumulates as a log, optionally with timestamps.
-- **Automatic file saving**: sessions are written to a save folder as they are
-  recorded — Markdown (recommended), plain text, or JSON Lines. Session name,
-  start/end times, language, and sources are recorded in the file header.
+- **File saving, chosen per session**: when starting a session, decide whether
+  the transcript is written to the save folder as it is recorded — Markdown
+  (recommended), plain text, or JSON Lines. Session name, start/end times,
+  language, and sources are recorded in the file header.
 - **The save folder is the history**: the sidebar lists the folder's
-  transcripts alongside the live session. Sessions recorded with saving off
+  transcripts alongside the live session. Sessions started with saving off
   are kept in memory until the app quits (keep one via
   File > Export Transcript…).
 - **Background recording**: recording continues with the window closed; the
@@ -59,9 +60,10 @@ macOS attributes the permission grants to the app.
 
 ## Using the app
 
-1. Click **Record** (⌘R) and pick the language, sources, and optionally an
-   estimated duration — or pull the name and duration from a calendar event
-   with **Suggest from Calendar…**.
+1. Click **Record** (⌘R) and pick the language, sources, whether to save the
+   transcript to a file, and optionally an estimated duration — or pull the
+   name and duration from a calendar event with **Suggest from Calendar…**.
+   These choices are remembered for the next session.
 2. Speak, or let the target app play audio. In-progress text appears dimmed at
    the bottom; finalized lines accumulate above it.
 3. Stop with the toolbar button, ⌘., or from the menu bar icon. Closing the

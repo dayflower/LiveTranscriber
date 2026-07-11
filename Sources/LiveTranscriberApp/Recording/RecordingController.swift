@@ -24,6 +24,8 @@ final class RecordingController {
     /// Silence needed (after the estimated duration) before auto-stop;
     /// 0 disables the silence rule.
     var autoStopSilenceSeconds: TimeInterval = 0
+    /// Write the transcript to the save folder as it is recorded.
+    var saveToFile = true
   }
 
   private(set) var phase: Phase = .idle
@@ -40,7 +42,7 @@ final class RecordingController {
   private let autoStopMonitor = AutoStopMonitor()
 
   /// Invoked once recording has actually begun (file writer setup hooks in).
-  var onSessionStarted: ((TranscriptSession) -> Void)?
+  var onSessionStarted: ((TranscriptSession, SessionPlan) -> Void)?
   /// Invoked when a session has fully stopped (finals flushed).
   var onSessionFinished: ((TranscriptSession) -> Void)?
   /// Invoked for every finalized segment while recording.
@@ -98,7 +100,7 @@ final class RecordingController {
         ) { [weak self] reason in
           self?.autoStop(reason: reason)
         }
-        onSessionStarted?(session)
+        onSessionStarted?(session, plan)
       } catch {
         lastError = error.localizedDescription
         await teardownPipeline()
