@@ -1,6 +1,6 @@
 import Foundation
 
-/// Markdown with YAML-style frontmatter; the recommended default format.
+/// Markdown with YAML-style frontmatter; the default format.
 ///
 /// ```
 /// ---

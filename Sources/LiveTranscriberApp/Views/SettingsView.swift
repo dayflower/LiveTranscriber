@@ -34,7 +34,7 @@ private struct OutputSettings: View {
 
       Picker("Format", selection: $settings.formatID) {
         ForEach(SessionFormatID.allCases) { format in
-          Text(format == .markdown ? "\(format.displayName) (recommended)" : format.displayName)
+          Text(format.displayName)
             .tag(format)
         }
       }

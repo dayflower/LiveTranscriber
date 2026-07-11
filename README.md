@@ -17,8 +17,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
 - **Live transcript**: in-progress text updates in place; finalized text
   accumulates as a log, optionally with timestamps.
 - **File saving, chosen per session**: when starting a session, decide whether
-  the transcript is written to the save folder as it is recorded — Markdown
-  (recommended), plain text, or JSON Lines. Session name, start/end times,
+  the transcript is written to the save folder as it is recorded — Markdown,
+  plain text, or JSON Lines. Session name, start/end times,
   language, and sources are recorded in the file header.
 - **The save folder is the history**: the sidebar lists the folder's
   transcripts alongside the live session. Sessions started with saving off
@@ -77,7 +77,7 @@ macOS attributes the permission grants to the app.
 
 | Format | Extension | Notes |
 | --- | --- | --- |
-| Markdown (recommended) | `.md` | Header block + one paragraph per entry, optional `**[HH:mm:ss]**` prefix |
+| Markdown | `.md` | Header block + one paragraph per entry, optional `**[HH:mm:ss]**` prefix |
 | Plain text | `.txt` | Same header block + one line per entry |
 | JSON Lines | `.jsonl` | One JSON object per line; best for further processing |
 
