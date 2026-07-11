@@ -96,7 +96,7 @@ enum SessionFileText {
     isoFormatter.date(from: string) ?? isoFractionalFormatter.date(from: string)
   }
 
-  nonisolated(unsafe) static let timestampFormatter: DateFormatter = {
+  static let timestampFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "HH:mm:ss"
     return formatter
