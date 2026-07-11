@@ -6,6 +6,10 @@ let package = Package(
   platforms: [
     .macOS(.v26)
   ],
+  products: [
+    // The executable name doubles as the app-menu title under `swift run`.
+    .executable(name: "LiveTranscriber", targets: ["LiveTranscriberApp"])
+  ],
   targets: [
     .target(
       name: "LiveTranscriberCore",

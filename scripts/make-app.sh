@@ -24,7 +24,9 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="LiveTranscriber"
 BUNDLE_ID="com.dayflower.live-transcriber"
-EXECUTABLE_TARGET="LiveTranscriberApp"
+# Executable product name (Package.swift); also the app-menu title under
+# `swift run`, hence distinct from the LiveTranscriberApp target name.
+EXECUTABLE_PRODUCT="LiveTranscriber"
 VERSION="0.1.0"
 SIGN_ID="${SIGN_ID:--}"
 
@@ -40,7 +42,7 @@ done
 
 swift build -c "$CONFIGURATION"
 
-BIN_PATH="$(swift build -c "$CONFIGURATION" --show-bin-path)/$EXECUTABLE_TARGET"
+BIN_PATH="$(swift build -c "$CONFIGURATION" --show-bin-path)/$EXECUTABLE_PRODUCT"
 APP_DIR="build/$APP_NAME.app"
 
 rm -rf "$APP_DIR"

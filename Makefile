@@ -25,7 +25,7 @@ app:
 
 # Quick dev loop: build and launch directly with SwiftPM
 run:
-	swift run LiveTranscriberApp
+	swift run LiveTranscriber
 
 # Formatting check (fails when violations are found)
 check:

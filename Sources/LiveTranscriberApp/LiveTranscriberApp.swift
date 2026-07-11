@@ -59,6 +59,14 @@ struct LiveTranscriberApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   static var model: AppModel?
 
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    // A bare executable (`swift run`) has no .app bundle, so LaunchServices
+    // registers it as background-only: no Dock icon, no menu bar. Opt back in.
+    guard Bundle.main.bundleURL.pathExtension != "app" else { return }
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate()
+  }
+
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     guard let model = Self.model, model.recording.isBusy else { return .terminateNow }
 
