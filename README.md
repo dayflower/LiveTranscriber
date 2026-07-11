@@ -62,7 +62,7 @@ macOS attributes the permission grants to the app.
 
 1. Click **Record** (⌘R) and pick the language, sources, whether to save the
    transcript to a file, and optionally an estimated duration — or pull the
-   name and duration from a calendar event with **Suggest from Calendar…**.
+   name and duration from a calendar event with **Fill from Calendar Event…**.
    These choices are remembered for the next session.
 2. Speak, or let the target app play audio. In-progress text appears dimmed at
    the bottom; finalized lines accumulate above it.

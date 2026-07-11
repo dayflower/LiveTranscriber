@@ -28,88 +28,10 @@ struct NewSessionSheet: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Form {
-        TextField(
-          "Session name", text: $sessionName, prompt: Text(TranscriptSession.defaultName(for: .now))
-        )
-
-        Picker("Language", selection: $localeID) {
-          ForEach(supportedLocales) { choice in
-            Text(choice.label).tag(choice.id)
-          }
-        }
-
-        Section("Audio Sources") {
-          Toggle("Microphone", isOn: $microphoneEnabled)
-          if microphoneEnabled {
-            Picker("Device", selection: $microphoneID) {
-              ForEach(microphones) { device in
-                Text(device.isSystemDefault ? "\(device.name) (default)" : device.name)
-                  .tag(device.id)
-              }
-            }
-          }
-
-          Toggle("Application audio", isOn: $appAudioEnabled)
-          if appAudioEnabled {
-            if loadingApps {
-              HStack {
-                ProgressView().controlSize(.small)
-                Text("Loading applications…").foregroundStyle(.secondary)
-              }
-            } else if let appListError {
-              Text(appListError).foregroundStyle(.red)
-            } else {
-              Picker("Application", selection: $appSelection) {
-                Text("System audio (all)").tag(Self.systemAudioTag)
-                ForEach(apps) { app in
-                  Text(app.name).tag(app.id)
-                }
-              }
-            }
-          }
-        }
-
-        Section {
-          Picker("Estimated duration", selection: $estimatedMinutes) {
-            ForEach(durationChoices, id: \.self) { minutes in
-              Text(minutes == 0 ? String(localized: "None") : "\(minutes) min")
-                .tag(minutes)
-            }
-          }
-
-          Button {
-            showingCalendarSuggestions = true
-          } label: {
-            Label("Suggest from Calendar…", systemImage: "calendar")
-          }
-          .popover(isPresented: $showingCalendarSuggestions) {
-            CalendarSuggestionList(referenceDate: .now) { candidate in
-              applyCalendarEvent(candidate)
-              showingCalendarSuggestions = false
-            }
-          }
-        } footer: {
-          Text(
-            "After the estimated duration has passed, recording stops automatically once silence continues."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
-
-        Section {
-          Toggle("Save transcript to file", isOn: $saveToFile)
-        } footer: {
-          Text(
-            saveToFile
-              ? "Written to \(model.settings.saveFolderPath) while recording."
-              : "Kept in memory only; it disappears when the app quits unless exported."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
+      HStack(spacing: 0) {
+        sessionColumn
+        sourcesColumn
       }
-      .formStyle(.grouped)
 
       Divider()
       HStack {
@@ -121,13 +43,109 @@ struct NewSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 440, height: 540)
+    .frame(width: 720, height: 440)
     .task { await loadChoices() }
     .onChange(of: appAudioEnabled) {
       if appAudioEnabled {
         Task { await loadApps() }
       }
     }
+  }
+
+  /// Left column: what the session is called and how it ends up on disk.
+  private var sessionColumn: some View {
+    Form {
+      Section {
+        TextField(
+          "Name", text: $sessionName, prompt: Text(TranscriptSession.defaultName(for: .now))
+        )
+
+        Picker("Estimated duration", selection: $estimatedMinutes) {
+          ForEach(durationChoices, id: \.self) { minutes in
+            Text(minutes == 0 ? String(localized: "None") : "\(minutes) min")
+              .tag(minutes)
+          }
+        }
+
+        Button {
+          showingCalendarSuggestions = true
+        } label: {
+          Label("Fill from Calendar Event…", systemImage: "calendar")
+        }
+        .popover(isPresented: $showingCalendarSuggestions) {
+          CalendarSuggestionList(referenceDate: .now) { candidate in
+            applyCalendarEvent(candidate)
+            showingCalendarSuggestions = false
+          }
+        }
+      } header: {
+        Text("Session")
+      } footer: {
+        Text(
+          "A calendar event fills both the name and the estimated duration. After the estimated duration has passed, recording stops automatically once silence continues."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+
+      Section {
+        Toggle("Save transcript to file", isOn: $saveToFile)
+      } footer: {
+        Text(
+          saveToFile
+            ? "Written to \(model.settings.saveFolderPath) while recording."
+            : "Kept in memory only; it disappears when the app quits unless exported."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+  }
+
+  /// Right column: what gets recorded and in which language.
+  private var sourcesColumn: some View {
+    Form {
+      Section("Transcription") {
+        Picker("Language", selection: $localeID) {
+          ForEach(supportedLocales) { choice in
+            Text(choice.label).tag(choice.id)
+          }
+        }
+      }
+
+      Section("Audio Sources") {
+        Toggle("Microphone", isOn: $microphoneEnabled)
+        if microphoneEnabled {
+          Picker("Device", selection: $microphoneID) {
+            ForEach(microphones) { device in
+              Text(device.isSystemDefault ? "\(device.name) (default)" : device.name)
+                .tag(device.id)
+            }
+          }
+        }
+
+        Toggle("Application audio", isOn: $appAudioEnabled)
+        if appAudioEnabled {
+          if loadingApps {
+            HStack {
+              ProgressView().controlSize(.small)
+              Text("Loading applications…").foregroundStyle(.secondary)
+            }
+          } else if let appListError {
+            Text(appListError).foregroundStyle(.red)
+          } else {
+            Picker("Application", selection: $appSelection) {
+              Text("System audio (all)").tag(Self.systemAudioTag)
+              ForEach(apps) { app in
+                Text(app.name).tag(app.id)
+              }
+            }
+          }
+        }
+      }
+    }
+    .formStyle(.grouped)
   }
 
   private var hasSource: Bool {
