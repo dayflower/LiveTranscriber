@@ -35,7 +35,6 @@ struct RecordingToolbar: ToolbarContent {
             .font(.body.monospacedDigit())
             .foregroundStyle(.secondary)
           EstimatedDurationMenu(session: session)
-          CalendarApplyButton(session: session)
         }
         LevelMeter(level: model.recording.audioLevel)
         Button {
@@ -103,32 +102,6 @@ private struct EstimatedDurationMenu: View {
     session.estimatedDuration = estimated
     session.hardLimit = estimated.map {
       $0 + TimeInterval(model.settings.hardLimitExtraMinutes * 60)
-    }
-  }
-}
-
-/// Apply a calendar event (title → session name, event end → estimated
-/// duration) to the live session.
-private struct CalendarApplyButton: View {
-  @Bindable var session: TranscriptSession
-  @Environment(AppModel.self) private var model
-  @State private var showingSuggestions = false
-
-  var body: some View {
-    Button {
-      showingSuggestions = true
-    } label: {
-      Label("Calendar", systemImage: "calendar")
-    }
-    .help("Apply a calendar event's title and duration to this session")
-    .popover(isPresented: $showingSuggestions) {
-      CalendarSuggestionList(referenceDate: session.startedAt) { candidate in
-        session.name = candidate.title
-        let estimated = max(60, candidate.endDate.timeIntervalSince(session.startedAt))
-        session.estimatedDuration = estimated
-        session.hardLimit = estimated + TimeInterval(model.settings.hardLimitExtraMinutes * 60)
-        showingSuggestions = false
-      }
     }
   }
 }
