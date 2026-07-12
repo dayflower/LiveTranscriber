@@ -103,3 +103,7 @@ that happens when the session stops.
 
 See [`notes/DEVELOP.md`](notes/DEVELOP.md) for the architecture, build/test
 workflow, signing notes, and implementation details.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
