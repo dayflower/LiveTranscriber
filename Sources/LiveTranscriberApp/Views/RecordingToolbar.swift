@@ -12,7 +12,9 @@ struct RecordingToolbar: ToolbarContent {
         Button {
           model.showingNewSessionSheet = true
         } label: {
+          // Toolbar buttons ignore `.tint`; style the label directly.
           Label("Record", systemImage: "record.circle")
+            .foregroundStyle(.red)
         }
         .help("Start a new recording session")
 
@@ -41,8 +43,8 @@ struct RecordingToolbar: ToolbarContent {
           model.recording.stop()
         } label: {
           Label("Stop", systemImage: "stop.circle.fill")
+            .foregroundStyle(.primary)
         }
-        .tint(.red)
         .help("Stop recording")
 
       case .stopping:
