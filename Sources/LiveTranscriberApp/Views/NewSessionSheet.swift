@@ -138,7 +138,14 @@ struct NewSessionSheet: View {
           } else {
             Picker("Application", selection: $appSelection) {
               Text("System audio (all)").tag(Self.systemAudioTag)
-              ForEach(apps) { app in
+              if !priorityApps.isEmpty {
+                Divider()
+                ForEach(priorityApps) { app in
+                  Text(app.name).tag(app.id)
+                }
+                Divider()
+              }
+              ForEach(otherApps) { app in
                 Text(app.name).tag(app.id)
               }
             }
@@ -181,6 +188,19 @@ struct NewSessionSheet: View {
           "Labels lines Speaker 1, Speaker 2, … via on-device diarization. Downloads a model (about 100 MB) on first use."
       )
     }
+  }
+
+  /// Priority applications (Settings) that are currently running, in name
+  /// order (the settings list is kept sorted).
+  private var priorityApps: [AppAudioCapture.CapturableApp] {
+    model.settings.priorityApps.compactMap { pinned in
+      apps.first { $0.id == pinned.bundleID }
+    }
+  }
+
+  private var otherApps: [AppAudioCapture.CapturableApp] {
+    let pinned = Set(model.settings.priorityApps.map(\.bundleID))
+    return apps.filter { !pinned.contains($0.id) }
   }
 
   private var hasSource: Bool {

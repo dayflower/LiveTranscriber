@@ -2,6 +2,15 @@ import Foundation
 import Observation
 import SwiftUI
 
+/// An application pinned in Settings so it appears at the top of the
+/// app-audio picker. The name is stored so it can be displayed even while
+/// the application is not running.
+struct PriorityApp: Codable, Hashable, Identifiable, Sendable {
+  var id: String { bundleID }
+  let bundleID: String
+  let name: String
+}
+
 /// User preferences, backed by `UserDefaults`.
 @MainActor
 @Observable
@@ -32,6 +41,18 @@ final class AppSettings {
 
   var transcriptFontSize: Double {
     didSet { Self.defaults.set(transcriptFontSize, forKey: "transcriptFontSize") }
+  }
+
+  /// Applications listed before the rest in the new-session sheet's
+  /// app-audio picker. Kept sorted by name; add via `addPriorityApp`.
+  var priorityApps: [PriorityApp] {
+    didSet { Self.defaults.set(try? JSONEncoder().encode(priorityApps), forKey: "priorityApps") }
+  }
+
+  func addPriorityApp(_ app: PriorityApp) {
+    priorityApps = (priorityApps + [app]).sorted {
+      $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    }
   }
 
   /// Force-finalize after `silenceFinalizeSeconds` of detected silence.
@@ -81,6 +102,10 @@ final class AppSettings {
     timestampsEnabled = d.object(forKey: "timestampsEnabled") as? Bool ?? true
     transcriptFontName = d.string(forKey: "transcriptFontName") ?? ""
     transcriptFontSize = d.object(forKey: "transcriptFontSize") as? Double ?? 13
+    priorityApps =
+      (d.data(forKey: "priorityApps")
+      .flatMap { try? JSONDecoder().decode([PriorityApp].self, from: $0) } ?? [])
+      .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
     // Legacy convention stored 0 seconds for "off"; migrate that to the
     // explicit toggles and keep the seconds at their defaults.

@@ -13,7 +13,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
 
 - **Manual start/stop** with per-session choice of language, input microphone,
   and target application (or whole-system audio); mic and app audio can be
-  mixed.
+  mixed. Frequently used applications can be pinned as priority applications
+  in Settings so they appear at the top of the picker.
 - **Live transcript**: in-progress text updates in place; finalized text
   accumulates as a log, optionally with timestamps.
 - **Speaker separation (optional)**: label transcript lines by audio source
@@ -82,7 +83,8 @@ macOS attributes the permission grants to the app.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
 5. Settings (⌘,) hold the save folder, file format, timestamps, the
-   auto-stop behavior, and the transcript font and size.
+   auto-stop behavior, priority applications for the application picker, and
+   the transcript font and size.
 
 ## Transcript files
 

@@ -1,4 +1,5 @@
 import AppKit
+import LiveTranscriberCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -107,8 +108,84 @@ private struct RecordingSettings: View {
         .font(.caption)
         .foregroundStyle(.secondary)
       }
+
+      Section {
+        ForEach(settings.priorityApps) { app in
+          HStack {
+            Text(app.name)
+            Spacer()
+            Button {
+              settings.priorityApps.removeAll { $0.bundleID == app.bundleID }
+            } label: {
+              Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(app.name)")
+          }
+        }
+
+        Button("Add Application…") { loadCandidates() }
+          .popover(isPresented: $showingAppCandidates) { candidateList }
+      } header: {
+        Text("Priority applications")
+      } footer: {
+        Text("Listed at the top of the application picker when starting a session.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     }
     .formStyle(.grouped)
+  }
+
+  @State private var showingAppCandidates = false
+  @State private var loadingCandidates = false
+  @State private var appCandidates: [AppAudioCapture.CapturableApp] = []
+  @State private var candidateError: String?
+
+  /// Listing capturable apps touches ScreenCaptureKit, which triggers the
+  /// Screen & System Audio Recording permission prompt on first use — hence
+  /// loading only on demand, not when the tab appears.
+  private func loadCandidates() {
+    loadingCandidates = true
+    showingAppCandidates = true
+    Task {
+      do {
+        let pinned = Set(model.settings.priorityApps.map(\.bundleID))
+        appCandidates = try await AppAudioCapture.availableApps()
+          .filter { !pinned.contains($0.id) }
+        candidateError = nil
+      } catch {
+        candidateError = error.localizedDescription
+        appCandidates = []
+      }
+      loadingCandidates = false
+    }
+  }
+
+  private var candidateList: some View {
+    Group {
+      if loadingCandidates {
+        ProgressView()
+      } else if let candidateError {
+        Text(candidateError).foregroundStyle(.red)
+      } else if appCandidates.isEmpty {
+        Text("No other running applications.").foregroundStyle(.secondary)
+      } else {
+        List(appCandidates) { app in
+          Button {
+            model.settings.addPriorityApp(PriorityApp(bundleID: app.id, name: app.name))
+            showingAppCandidates = false
+          } label: {
+            Text(app.name).frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+        }
+        .listStyle(.plain)
+      }
+    }
+    .frame(width: 260, height: 220)
+    .padding(loadingCandidates || candidateError != nil || appCandidates.isEmpty ? 12 : 0)
   }
 
   private func secondsLabel(_ value: Double) -> String {
