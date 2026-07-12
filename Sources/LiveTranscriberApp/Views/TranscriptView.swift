@@ -12,16 +12,22 @@ struct TranscriptView: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 10) {
           ForEach(session.segments) { segment in
-            SegmentRow(segment: segment, showsTimestamp: session.timestampsEnabled)
+            SegmentRow(
+              segment: segment,
+              showsTimestamp: session.timestampsEnabled,
+              font: model.settings.transcriptFont,
+              captionFont: model.settings.transcriptCaptionFont
+            )
           }
           ForEach(session.volatiles.filter { !$0.text.isEmpty }) { volatile in
             HStack(alignment: .firstTextBaseline, spacing: 8) {
               Image(systemName: "ellipsis")
                 .foregroundStyle(.tertiary)
               if let speaker = volatile.speaker {
-                SpeakerBadge(speaker: speaker)
+                SpeakerBadge(speaker: speaker, font: model.settings.transcriptCaptionFont)
               }
               Text(volatile.text)
+                .font(model.settings.transcriptFont)
                 .foregroundStyle(.secondary)
                 .italic()
             }
@@ -63,18 +69,21 @@ struct TranscriptView: View {
 private struct SegmentRow: View {
   let segment: TranscriptSegment
   let showsTimestamp: Bool
+  let font: Font
+  let captionFont: Font
 
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       if showsTimestamp {
         Text(segment.date, format: .dateTime.hour().minute().second())
-          .font(.caption.monospacedDigit())
+          .font(captionFont.monospacedDigit())
           .foregroundStyle(.secondary)
       }
       if let speaker = segment.speaker {
-        SpeakerBadge(speaker: speaker)
+        SpeakerBadge(speaker: speaker, font: captionFont)
       }
       Text(segment.text)
+        .font(font)
         .textSelection(.enabled)
     }
   }
@@ -82,10 +91,11 @@ private struct SegmentRow: View {
 
 struct SpeakerBadge: View {
   let speaker: String
+  let font: Font
 
   var body: some View {
     Text(speaker)
-      .font(.caption.bold())
+      .font(font.bold())
       .foregroundStyle(.secondary)
   }
 }

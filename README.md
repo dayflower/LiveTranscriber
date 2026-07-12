@@ -81,8 +81,8 @@ macOS attributes the permission grants to the app.
    window does not stop the recording.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
-5. Settings (⌘,) hold the save folder, file format, timestamps, and the
-   auto-stop behavior.
+5. Settings (⌘,) hold the save folder, file format, timestamps, the
+   auto-stop behavior, and the transcript font and size.
 
 ## Transcript files
 

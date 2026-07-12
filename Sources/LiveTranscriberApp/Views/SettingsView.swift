@@ -10,6 +10,9 @@ struct SettingsView: View {
       Tab("Recording", systemImage: "waveform") {
         RecordingSettings()
       }
+      Tab("Appearance", systemImage: "textformat") {
+        AppearanceSettings()
+      }
     }
     .frame(width: 460)
     .scenePadding()
@@ -111,6 +114,40 @@ private struct RecordingSettings: View {
   private func secondsLabel(_ value: Double) -> String {
     let format = value.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f s" : "%.1f s"
     return String(format: format, value)
+  }
+}
+
+private struct AppearanceSettings: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    @Bindable var settings = model.settings
+    Form {
+      Section("Transcript") {
+        Picker("Font", selection: $settings.transcriptFontName) {
+          Text("System Default").tag("")
+          Divider()
+          ForEach(fontFamilies, id: \.self) { family in
+            Text(family).tag(family)
+          }
+        }
+
+        Stepper(value: $settings.transcriptFontSize, in: 9...36, step: 1) {
+          LabeledContent("Size", value: "\(Int(settings.transcriptFontSize)) pt")
+        }
+      }
+
+      Section("Preview") {
+        Text("The quick brown fox jumps over the lazy dog. 1234567890")
+          .font(settings.transcriptFont)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .formStyle(.grouped)
+  }
+
+  private var fontFamilies: [String] {
+    NSFontManager.shared.availableFontFamilies.sorted()
   }
 }
 

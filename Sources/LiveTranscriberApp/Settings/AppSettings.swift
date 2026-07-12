@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 /// User preferences, backed by `UserDefaults`.
 @MainActor
@@ -22,6 +23,15 @@ final class AppSettings {
   /// saved files).
   var timestampsEnabled: Bool {
     didSet { Self.defaults.set(timestampsEnabled, forKey: "timestampsEnabled") }
+  }
+
+  /// Font family for the transcript text; empty means the system font.
+  var transcriptFontName: String {
+    didSet { Self.defaults.set(transcriptFontName, forKey: "transcriptFontName") }
+  }
+
+  var transcriptFontSize: Double {
+    didSet { Self.defaults.set(transcriptFontSize, forKey: "transcriptFontSize") }
   }
 
   /// Force-finalize after `silenceFinalizeSeconds` of detected silence.
@@ -69,6 +79,8 @@ final class AppSettings {
       ?? NSHomeDirectory().appending("/Documents/LiveTranscriber")
     formatID = d.string(forKey: "sessionFormat").flatMap(SessionFormatID.init) ?? .markdown
     timestampsEnabled = d.object(forKey: "timestampsEnabled") as? Bool ?? true
+    transcriptFontName = d.string(forKey: "transcriptFontName") ?? ""
+    transcriptFontSize = d.object(forKey: "transcriptFontSize") as? Double ?? 13
 
     // Legacy convention stored 0 seconds for "off"; migrate that to the
     // explicit toggles and keep the seconds at their defaults.
@@ -99,6 +111,18 @@ final class AppSettings {
 
   var effectiveAutoStopSilenceSeconds: Double {
     autoStopSilenceEnabled ? autoStopSilenceSeconds : 0
+  }
+
+  var transcriptFont: Font {
+    transcriptFontName.isEmpty
+      ? .system(size: transcriptFontSize)
+      : .custom(transcriptFontName, size: transcriptFontSize)
+  }
+
+  /// System-font companion for timestamps and speaker badges, scaled with the
+  /// transcript font (caption:body ratio at the 13 pt default is 10:13).
+  var transcriptCaptionFont: Font {
+    .system(size: (transcriptFontSize * 10 / 13).rounded())
   }
 
   var saveFolderURL: URL {
