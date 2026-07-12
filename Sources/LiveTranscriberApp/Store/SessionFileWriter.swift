@@ -68,13 +68,16 @@ final class SessionFileWriter {
 
   // MARK: - Naming
 
-  /// `20260711-095500 Session name`, sanitized for the file system.
+  /// The session name sanitized for the file system; falls back to a
+  /// start-time stamp when nothing survives sanitization.
   nonisolated static func fileName(name: String, startedAt: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyyMMdd-HHmmss"
-    let stamp = formatter.string(from: startedAt)
     let sanitized = sanitize(name)
-    return sanitized.isEmpty ? stamp : "\(stamp) \(sanitized)"
+    if !sanitized.isEmpty { return sanitized }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    return formatter.string(from: startedAt)
   }
 
   nonisolated static func sanitize(_ name: String) -> String {

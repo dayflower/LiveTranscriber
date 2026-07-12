@@ -75,7 +75,9 @@ final class TranscriptSession: Identifiable {
   /// Default session name derived from the start time, e.g. "2026-07-11 09:55".
   static func defaultName(for date: Date) -> String {
     let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.dateFormat = "yyyyMMdd HHmm"
     return formatter.string(from: date)
   }
 }

@@ -171,4 +171,18 @@ struct SessionFormatTests {
     #expect(!name.contains(":"))
     #expect(name == "a-b-c-d-e-f-g-h-i-j")
   }
+
+  @Test
+  func fileNameUsesSessionNameWithoutTimestampPrefix() {
+    let started = SessionFileText.date(fromISO: "2026-07-12T10:30:45+09:00")!
+    #expect(SessionFileWriter.fileName(name: "Team sync", startedAt: started) == "Team sync")
+  }
+
+  @Test
+  func fileNameFallsBackToStampWhenNameSanitizesToNothing() {
+    let started = SessionFileText.date(fromISO: "2026-07-12T10:30:45+09:00")!
+    let name = SessionFileWriter.fileName(name: "   ", startedAt: started)
+    #expect(!name.isEmpty)
+    #expect(name.wholeMatch(of: /\d{8}-\d{6}/) != nil)
+  }
 }
