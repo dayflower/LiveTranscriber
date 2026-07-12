@@ -17,11 +17,14 @@ struct SessionFormatTests {
       estimatedDuration: 1800,
       timestampsEnabled: timestamps,
       segments: [
+        // One segment with a speaker and one without, so round-trips cover
+        // both labeled and unlabeled lines.
         TranscriptSegment(
           text: "こんにちは、始めましょう。",
           date: started.addingTimeInterval(12),
           audioStart: 12.0,
-          audioEnd: 15.5
+          audioEnd: 15.5,
+          speaker: "Speaker 1"
         ),
         TranscriptSegment(
           text: "Second segment with [brackets] and: colons.",
@@ -52,6 +55,7 @@ struct SessionFormatTests {
       #expect(restoredSegment.text == originalSegment.text)
       // Timestamps carry second precision in every format.
       #expect(abs(restoredSegment.date.timeIntervalSince(originalSegment.date)) < 1)
+      #expect(restoredSegment.speaker == originalSegment.speaker)
     }
   }
 
@@ -63,6 +67,7 @@ struct SessionFormatTests {
 
     #expect(!restored.timestampsEnabled)
     #expect(restored.segments.map(\.text) == original.segments.map(\.text))
+    #expect(restored.segments.map(\.speaker) == original.segments.map(\.speaker))
   }
 
   @Test(arguments: SessionFormatID.allCases)
@@ -81,6 +86,67 @@ struct SessionFormatTests {
     let restored = try format.read(text)
     #expect(restored.endedAt == nil)
     #expect(restored.segments.map(\.text) == streamed.segments.map(\.text))
+    #expect(restored.segments.map(\.speaker) == streamed.segments.map(\.speaker))
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func legacyFilesParseWithNilSpeaker(formatID: SessionFormatID) throws {
+    // Files written before speaker separation existed must keep parsing,
+    // with every segment unattributed — including text that superficially
+    // resembles the speaker markers.
+    let header = """
+      ---
+      name: Legacy session
+      started: 2026-07-11T09:55:00+09:00
+      locale: ja-JP
+      timestamps: true
+      generator: live-transcriber
+      ---
+
+      """
+    let legacy: String
+    switch formatID {
+    case .markdown:
+      legacy = header + "**[09:55:12]** Note: remember this.\n\n**[09:55:20]** Second one.\n\n"
+    case .plainText:
+      legacy = header + "[09:55:12] Note: remember this.\n[09:55:20] Second one.\n"
+    case .jsonl:
+      legacy = """
+        {"name":"Legacy session","started":"2026-07-11T09:55:00+09:00","locale":"ja-JP","timestamps":true,"type":"meta"}
+        {"date":"2026-07-11T09:55:12+09:00","text":"Note: remember this.","type":"segment"}
+        {"date":"2026-07-11T09:55:20+09:00","text":"Second one.","type":"segment"}
+
+        """
+    }
+
+    let restored = try formatID.format.read(legacy)
+    #expect(restored.segments.count == 2)
+    #expect(restored.segments.allSatisfy { $0.speaker == nil })
+    #expect(restored.segments.first?.text == "Note: remember this.")
+  }
+
+  @Test
+  func plainTextAngleBracketTextIsNotMisreadAsSpeaker() throws {
+    // A `<...>` run that does not look like a label (charset/length) stays
+    // part of the text; a real marker is split off.
+    let format = SessionFormatID.plainText.format
+    let started = SessionFileText.date(fromISO: "2026-07-11T09:55:00+09:00")!
+    let snapshot = SessionSnapshot(
+      name: "Edge", startedAt: started, endedAt: nil, localeIdentifier: "en-US",
+      sourceDescription: "", estimatedDuration: nil, timestampsEnabled: true,
+      segments: [
+        TranscriptSegment(
+          text: "<a+b> stays text.", date: started, audioStart: nil, audioEnd: nil),
+        TranscriptSegment(
+          text: "labeled line.", date: started, audioStart: nil, audioEnd: nil, speaker: "Mic"),
+      ]
+    )
+
+    let restored = try format.read(format.serialize(snapshot))
+    #expect(restored.segments[0].speaker == nil)
+    #expect(restored.segments[0].text == "<a+b> stays text.")
+    #expect(restored.segments[1].speaker == "Mic")
+    #expect(restored.segments[1].text == "labeled line.")
   }
 
   @Test(arguments: SessionFormatID.allCases)

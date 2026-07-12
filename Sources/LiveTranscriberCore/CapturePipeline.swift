@@ -30,13 +30,22 @@ public actor CapturePipeline {
 
   private let configuration: CaptureConfiguration
   private let eventContinuation: AsyncStream<TranscriptionEvent>.Continuation
-  private var engine: TranscriptionEngine?
+  private var engines: [(label: SpeakerLabel?, engine: TranscriptionEngine)] = []
   private var microphone: MicrophoneCapture?
   private var appAudio: AppAudioCapture?
-  private var mixer: AudioMixer?
-  private var levelMeter: AudioLevelMeter?
-  private var engineTask: Task<Void, Never>?
+  private var mixers: [AudioMixer] = []
+  private var levelMeters: [AudioLevelMeter] = []
+  private var engineTasks: [Task<Void, Never>] = []
+  private var diarizer: SpeakerDiarizer?
   private var stopped = false
+
+  /// Source separation needs one engine per source; with a single source the
+  /// mode degrades to plain (unlabeled) transcription.
+  private var separatesBySource: Bool {
+    configuration.speakerSeparation == .source
+      && configuration.microphoneID != nil
+      && configuration.appAudio != nil
+  }
 
   public init(configuration: CaptureConfiguration) {
     self.configuration = configuration
@@ -44,7 +53,7 @@ public actor CapturePipeline {
   }
 
   /// Resolve the locale, download model assets if needed (progress appears
-  /// on `events`), and build the recognition engine. Returns the locale
+  /// on `events`), and build the recognition engine(s). Returns the locale
   /// actually used. Audio does not flow until `start()`.
   @discardableResult
   public func prepare() async throws -> Locale {
@@ -58,53 +67,143 @@ public actor CapturePipeline {
     }
 
     let continuation = eventContinuation
-    engine = try await TranscriptionEngine.start(
-      options: .init(
-        locale: locale,
-        enableDetector: configuration.enableSpeechDetector,
-        silenceFinalizeSeconds: configuration.silenceFinalizeSeconds,
-        periodicFinalizeSeconds: configuration.periodicFinalizeSeconds
-      ),
-      emit: { continuation.yield($0) }
+    let options = TranscriptionEngine.Options(
+      locale: locale,
+      enableDetector: configuration.enableSpeechDetector,
+      silenceFinalizeSeconds: configuration.silenceFinalizeSeconds,
+      periodicFinalizeSeconds: configuration.periodicFinalizeSeconds
     )
+
+    if separatesBySource {
+      // Two engines share the one events stream: transcripts carry a source
+      // label, and both detectors' activity is OR-merged so silence-driven
+      // consumers see a single session-level signal.
+      let merger = ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
+      for label in [SpeakerLabel.microphone, .appAudio] {
+        let engine = try await TranscriptionEngine.start(
+          options: options,
+          emit: Self.labelingEmit(label: label, merger: merger, continuation: continuation)
+        )
+        engines.append((label, engine))
+      }
+    } else {
+      let engine = try await TranscriptionEngine.start(
+        options: options,
+        emit: { continuation.yield($0) }
+      )
+      engines.append((nil, engine))
+    }
+
+    if configuration.speakerSeparation == .fluidAudio {
+      diarizer = try await SpeakerDiarizer.prepare(emit: { continuation.yield($0) })
+    }
     return locale
+  }
+
+  private static func labelingEmit(
+    label: SpeakerLabel,
+    merger: ActivityMerger,
+    continuation: AsyncStream<TranscriptionEvent>.Continuation
+  ) -> @Sendable (TranscriptionEvent) -> Void {
+    { event in
+      switch event {
+      case .transcript(let result):
+        continuation.yield(.transcript(result.with(speaker: label)))
+      case .speechActivity(let isSpeaking):
+        merger.update(label, isSpeaking: isSpeaking)
+      default:
+        continuation.yield(event)
+      }
+    }
   }
 
   /// Start the audio captures and result consumption.
   public func start() async throws {
-    guard let engine else { throw PipelineError.notPrepared }
+    guard !engines.isEmpty else { throw PipelineError.notPrepared }
 
-    engineTask = Task { await engine.run() }
+    for entry in engines {
+      let engine = entry.engine
+      engineTasks.append(Task { await engine.run() })
+    }
 
-    let input = engine.input
     let continuation = eventContinuation
     let onError: @Sendable (String) -> Void = { continuation.yield(.failure($0)) }
 
-    let meter = AudioLevelMeter { continuation.yield(.audioLevel($0)) }
-    levelMeter = meter
-    let engineSink = meter.tap { input.yield(AnalyzerInput(buffer: $0)) }
+    var appSink: (@Sendable (AVAudioPCMBuffer) -> Void)?
+    var microphoneSink: (@Sendable (AVAudioPCMBuffer) -> Void)?
+    var appCaptureFormat: AVAudioFormat?
+    var microphoneCaptureFormat: AVAudioFormat?
 
-    // Single source feeds the engine directly; two sources go through the
-    // mixer, whose clock then defines the timeline.
-    let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
-    var appSink = engineSink
-    var microphoneSink = engineSink
-    var captureFormat = engine.audioFormat
+    if separatesBySource {
+      // One engine per source. The microphone delivers continuously and
+      // feeds its engine directly; app audio goes through a single-inlet
+      // mixer purely for silence padding, because ScreenCaptureKit delivers
+      // nothing during system silence and the engine's audio timeline would
+      // otherwise fall behind the wall clock.
+      let levelMerger = LevelMerger { continuation.yield(.audioLevel($0)) }
+      for entry in engines {
+        guard let label = entry.label else { continue }
+        let input = entry.engine.input
+        let meter = AudioLevelMeter { levelMerger.update(label, level: $0) }
+        levelMeters.append(meter)
+        let engineSink = meter.tap { input.yield(AnalyzerInput(buffer: $0)) }
 
-    if mixing {
-      let mixer = AudioMixer(outputFormat: engine.audioFormat, sink: engineSink, onError: onError)
-      self.mixer = mixer
-      captureFormat = mixer.workingFormat
-      let appInlet = mixer.appInlet
-      let microphoneInlet = mixer.microphoneInlet
-      appSink = { appInlet.feed($0) }
-      microphoneSink = { microphoneInlet.feed($0) }
-      mixer.start()
+        switch label {
+        case .microphone:
+          microphoneSink = engineSink
+          microphoneCaptureFormat = entry.engine.audioFormat
+        case .appAudio:
+          let padder = AudioMixer(
+            outputFormat: entry.engine.audioFormat, sink: engineSink, onError: onError)
+          mixers.append(padder)
+          let inlet = padder.appInlet
+          appSink = { inlet.feed($0) }
+          appCaptureFormat = padder.workingFormat
+          padder.start()
+        case .diarized:
+          break
+        }
+      }
+    } else {
+      let engine = engines[0].engine
+      let input = engine.input
+      let meter = AudioLevelMeter { continuation.yield(.audioLevel($0)) }
+      levelMeters.append(meter)
+      var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
+        input.yield(AnalyzerInput(buffer: $0))
+      }
+      // The diarizer taps the exact stream the engine consumes, so its
+      // accumulated sample offsets share the transcriber's timeline origin.
+      if let diarizer {
+        await diarizer.start()
+        engineFeed = diarizer.tap(engineFeed)
+      }
+      let engineSink = meter.tap(engineFeed)
+
+      // Single source feeds the engine directly; two sources go through the
+      // mixer, whose clock then defines the timeline.
+      let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
+      if mixing {
+        let mixer = AudioMixer(outputFormat: engine.audioFormat, sink: engineSink, onError: onError)
+        mixers.append(mixer)
+        let appInlet = mixer.appInlet
+        let microphoneInlet = mixer.microphoneInlet
+        appSink = { appInlet.feed($0) }
+        microphoneSink = { microphoneInlet.feed($0) }
+        appCaptureFormat = mixer.workingFormat
+        microphoneCaptureFormat = mixer.workingFormat
+        mixer.start()
+      } else {
+        appSink = engineSink
+        microphoneSink = engineSink
+        appCaptureFormat = engine.audioFormat
+        microphoneCaptureFormat = engine.audioFormat
+      }
     }
 
-    if let source = configuration.appAudio {
+    if let source = configuration.appAudio, let appSink, let appCaptureFormat {
       let capture = AppAudioCapture(
-        outputFormat: captureFormat,
+        outputFormat: appCaptureFormat,
         frameRate: configuration.captureFrameRate,
         sink: appSink,
         onError: onError,
@@ -114,9 +213,11 @@ public actor CapturePipeline {
       appAudio = capture
     }
 
-    if let microphoneID = configuration.microphoneID {
+    if let microphoneID = configuration.microphoneID, let microphoneSink,
+      let microphoneCaptureFormat
+    {
       let capture = MicrophoneCapture(
-        outputFormat: captureFormat,
+        outputFormat: microphoneCaptureFormat,
         sink: microphoneSink,
         onError: onError
       )
@@ -131,9 +232,18 @@ public actor CapturePipeline {
     stopped = true
     await appAudio?.stop()
     microphone?.stop()
-    mixer?.stop()
-    await engine?.finish()
-    await engineTask?.value
+    for mixer in mixers {
+      mixer.stop()
+    }
+    // Flush the diarizer's tail before the events stream can finish, or
+    // trailing segments would stay unlabeled.
+    await diarizer?.finish()
+    for entry in engines {
+      await entry.engine.finish()
+    }
+    for task in engineTasks {
+      await task.value
+    }
     eventContinuation.finish()
   }
 }

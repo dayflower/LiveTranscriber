@@ -27,6 +27,7 @@ struct JSONLSessionFormat: SessionFormat {
     var text: String
     var audioStart: Double?
     var audioEnd: Double?
+    var speaker: String?
   }
 
   func header(for snapshot: SessionSnapshot) -> String {
@@ -48,7 +49,8 @@ struct JSONLSessionFormat: SessionFormat {
         date: SessionFileText.isoFormatter.string(from: segment.date),
         text: segment.text,
         audioStart: segment.audioStart,
-        audioEnd: segment.audioEnd
+        audioEnd: segment.audioEnd,
+        speaker: segment.speaker
       ))
   }
 
@@ -79,7 +81,8 @@ struct JSONLSessionFormat: SessionFormat {
         text: decoded.text,
         date: SessionFileText.date(fromISO: decoded.date) ?? startedAt,
         audioStart: decoded.audioStart,
-        audioEnd: decoded.audioEnd
+        audioEnd: decoded.audioEnd,
+        speaker: decoded.speaker
       )
     }
 

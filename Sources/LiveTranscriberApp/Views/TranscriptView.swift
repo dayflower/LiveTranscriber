@@ -14,11 +14,14 @@ struct TranscriptView: View {
           ForEach(session.segments) { segment in
             SegmentRow(segment: segment, showsTimestamp: session.timestampsEnabled)
           }
-          if !session.volatileText.isEmpty {
+          ForEach(session.volatiles.filter { !$0.text.isEmpty }) { volatile in
             HStack(alignment: .firstTextBaseline, spacing: 8) {
               Image(systemName: "ellipsis")
                 .foregroundStyle(.tertiary)
-              Text(session.volatileText)
+              if let speaker = volatile.speaker {
+                SpeakerBadge(speaker: speaker)
+              }
+              Text(volatile.text)
                 .foregroundStyle(.secondary)
                 .italic()
             }
@@ -33,7 +36,7 @@ struct TranscriptView: View {
       .onChange(of: session.segments.count) {
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
       }
-      .onChange(of: session.volatileText) {
+      .onChange(of: session.volatiles) {
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
       }
     }
@@ -68,8 +71,21 @@ private struct SegmentRow: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
       }
+      if let speaker = segment.speaker {
+        SpeakerBadge(speaker: speaker)
+      }
       Text(segment.text)
         .textSelection(.enabled)
     }
+  }
+}
+
+struct SpeakerBadge: View {
+  let speaker: String
+
+  var body: some View {
+    Text(speaker)
+      .font(.caption.bold())
+      .foregroundStyle(.secondary)
   }
 }

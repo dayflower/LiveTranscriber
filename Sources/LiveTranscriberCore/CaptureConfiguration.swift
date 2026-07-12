@@ -1,5 +1,18 @@
 import Foundation
 
+/// How transcript segments are attributed to speakers.
+public enum SpeakerSeparationMode: String, CaseIterable, Sendable {
+  /// No speaker attribution (single mixed transcription).
+  case off
+  /// Transcribe microphone and app audio with separate recognizers and label
+  /// segments by capture source. Requires both sources; degrades to `off`
+  /// otherwise.
+  case source
+  /// Run FluidAudio speaker diarization on the transcribed stream and label
+  /// segments with anonymous speaker numbers.
+  case fluidAudio
+}
+
 /// Everything `CapturePipeline` needs to know to set up a session.
 public struct CaptureConfiguration: Sendable {
   /// Which application audio to capture via ScreenCaptureKit.
@@ -22,6 +35,9 @@ public struct CaptureConfiguration: Sendable {
   /// Application/system audio to capture, `nil` to not capture app audio.
   public var appAudio: AppAudioSource?
 
+  /// Speaker attribution mode for this session.
+  public var speakerSeparation: SpeakerSeparationMode
+
   /// Run `SpeechDetector` alongside the transcriber to obtain
   /// speech-presence events (used for silence-driven finalization and
   /// auto-stop).
@@ -43,6 +59,7 @@ public struct CaptureConfiguration: Sendable {
     localeIdentifier: String = Locale.current.identifier,
     microphoneID: String? = nil,
     appAudio: AppAudioSource? = nil,
+    speakerSeparation: SpeakerSeparationMode = .off,
     enableSpeechDetector: Bool = true,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
@@ -51,6 +68,7 @@ public struct CaptureConfiguration: Sendable {
     self.localeIdentifier = localeIdentifier
     self.microphoneID = microphoneID
     self.appAudio = appAudio
+    self.speakerSeparation = speakerSeparation
     self.enableSpeechDetector = enableSpeechDetector
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds

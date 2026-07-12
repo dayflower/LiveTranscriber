@@ -58,18 +58,24 @@ Two targets plus tests:
   | `TranscriptionEngine.swift` | SpeechAnalyzer/SpeechTranscriber/SpeechDetector setup, result consumption, silence-driven & periodic forced finalization |
   | `AppAudioCapture.swift` | ScreenCaptureKit app/system audio capture + capturable-app listing |
   | `MicrophoneCapture.swift` | AVCaptureSession microphone capture + device listing |
-  | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream |
+  | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream (single-inlet use doubles as a silence padder) |
   | `AudioLevelMeter.swift` | RMS tap on the engine sink for the UI level meter |
+  | `SourceMergers.swift` | `ActivityMerger`/`LevelMerger`: fold two engines' speech-activity and level events into one session-level signal |
+  | `SpeakerDiarizer.swift` | FluidAudio diarization actor: taps the engine stream, emits `.speakerTurn` events |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
   | `ModelManager.swift` | `AssetInventory` locale support/reservation/download |
   | `TranscriptionEvent.swift`, `CaptureConfiguration.swift` | Value types crossing the Core/App boundary |
+
+  The package's only external dependency is
+  [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0),
+  used by `LiveTranscriberCore` for speaker diarization.
 
 - **`Sources/LiveTranscriberApp`** — SwiftUI app.
 
   | Area | Responsibility |
   | --- | --- |
   | `AppModel.swift` | Root composition; wires recording ↔ file writing ↔ store; sidebar selection; export |
-  | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `AutoStopMonitor`, `SilenceTracker` |
+  | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `AutoStopMonitor`, `SilenceTracker`, `SpeakerAssigner` (turn → segment overlap matching) |
   | `Store/` | `SessionStore` (folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL implementations |
   | `Calendar/` | `CalendarService` (EventKit) and the pure `CalendarMatcher` heuristic |
   | `Settings/AppSettings.swift` | UserDefaults-backed preferences |
@@ -94,6 +100,28 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 - Each capture converts buffers to the target format on its own serial queue
   and hands them to a `sink` closure — the engine input directly for a single
   source, or a mixer inlet when both sources are active.
+- **Speaker separation** (`CaptureConfiguration.speakerSeparation`) picks one
+  of three topologies:
+  - `.off` — the diagram above, unchanged.
+  - `.source` (requires both sources; degrades to `.off` otherwise) — two
+    `TranscriptionEngine`s instead of the mixer. The microphone feeds its
+    engine directly; app audio passes through a **single-inlet `AudioMixer`**
+    whose only job is silence padding, because ScreenCaptureKit delivers
+    nothing during system silence and the engine's audio timeline would fall
+    behind the wall clock. Each engine's transcripts are labeled
+    (`SpeakerLabel.microphone`/`.appAudio`); the two detectors' activity is
+    OR-merged and the two level meters max-merged (`SourceMergers.swift`) so
+    downstream consumers keep seeing one session-level signal. Segments from
+    the two engines finalize on independent cadences, so
+    `RecordingController` insert-sorts them by date.
+  - `.fluidAudio` (any source count) — the `.off` topology plus a passthrough
+    tap on the engine sink feeding `SpeakerDiarizer`, which converts to
+    16 kHz mono Float32, accumulates 10 s chunks, runs FluidAudio, and emits
+    `.speakerTurn` events. Because the tap sits on the exact stream the
+    engine consumes, accumulated sample offsets share the transcriber's
+    `audioTimeRange` origin; the app layer matches turns to segments by time
+    overlap and retro-labels already-final segments as turns arrive.
+    `stop()` flushes the diarizer tail before finishing the event stream.
 - **Mixing**: the two captures run on independent clocks, and ScreenCaptureKit
   delivers nothing during system silence, so the mixer cannot wait for both
   sides. A wall-clock timer (100 ms) drains a fixed frame count from both
@@ -128,6 +156,14 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   highest fidelity (ISO dates + audio offsets). Markdown/plain text restore
   segment times from the `[HH:mm:ss]` prefixes, anchored to the session start
   (midnight-crossing rolls to the next day).
+- Per-segment speakers serialize as an optional `speaker` JSONL field, a bold
+  `**Mic:**` marker in Markdown, and an IRC-style `<Mic>` marker in plain
+  text. Readers fall back to a `nil` speaker for pre-feature files; a charset
+  and length check on the parsed label keeps ordinary text that resembles the
+  markers from being misread. With diarization, turns can arrive after a
+  segment was appended to the streaming file — those labels only reach disk
+  in the finalize rewrite, so a crash leaves recent lines speaker-less
+  (consistent with the streaming path's general fidelity).
 - Segment wall-clock timestamps prefer `sessionStart + audioStart` (the
   `.audioTimeRange` attribute) over the finalization time — closer to when the
   words were actually spoken.
@@ -167,4 +203,12 @@ user action.
   the candidate mitigations).
 - Ad-hoc signing vs TCC: see the bundle section above.
 - The model download for a new locale happens during session preparation and
-  is reported on the event stream (`.modelDownload`).
+  is reported on the event stream (`.modelDownload`). FluidAudio's
+  diarization models (~100 MB) download the same way on first `.fluidAudio`
+  session (cached under FluidAudio's default models directory).
+- Source-separation mode runs two `SpeechAnalyzer` sessions in parallel,
+  roughly doubling recognition CPU/RAM; watch thermals on long sessions.
+- Diarization labels lag transcription by up to one chunk (10 s): segments
+  finalize unlabeled and are retro-labeled when the covering turn arrives. A
+  sub-3 s audio tail at stop is dropped (too short for a reliable speaker
+  embedding), so a trailing segment can stay unlabeled.

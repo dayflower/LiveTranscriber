@@ -13,6 +13,9 @@ import Foundation
 ///
 /// **[09:55:20]** Second one.
 /// ```
+///
+/// With speaker separation a bold `**Mic:**` marker follows the timestamp:
+/// `**[09:55:12]** **Mic:** text`.
 struct MarkdownSessionFormat: SessionFormat {
   let id: SessionFormatID = .markdown
 
@@ -21,11 +24,14 @@ struct MarkdownSessionFormat: SessionFormat {
   }
 
   func segmentChunk(_ segment: TranscriptSegment, timestampsEnabled: Bool) -> String {
+    var prefix = ""
     if timestampsEnabled {
-      "**[\(SessionFileText.timestampFormatter.string(from: segment.date))]** \(segment.text)\n\n"
-    } else {
-      "\(segment.text)\n\n"
+      prefix += "**[\(SessionFileText.timestampFormatter.string(from: segment.date))]** "
     }
+    if let speaker = segment.speaker {
+      prefix += "**\(speaker):** "
+    }
+    return "\(prefix)\(segment.text)\n\n"
   }
 
   func serialize(_ snapshot: SessionSnapshot) -> String {
@@ -47,12 +53,14 @@ struct MarkdownSessionFormat: SessionFormat {
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
       .map { paragraph in
-        let (timestamp, text) = Self.splitTimestamp(paragraph)
+        let (timestamp, rest) = Self.splitTimestamp(paragraph)
+        let (speaker, text) = Self.splitSpeaker(rest)
         let date =
           timestamp
           .flatMap { SessionFileText.date(fromTimestamp: $0, sessionStart: snapshot.startedAt) }
           ?? snapshot.startedAt
-        return TranscriptSegment(text: text, date: date, audioStart: nil, audioEnd: nil)
+        return TranscriptSegment(
+          text: text, date: date, audioStart: nil, audioEnd: nil, speaker: speaker)
       }
     return snapshot
   }
@@ -66,5 +74,17 @@ struct MarkdownSessionFormat: SessionFormat {
       paragraph[paragraph.index(paragraph.startIndex, offsetBy: 3)..<closing.lowerBound])
     let text = paragraph[closing.upperBound...].trimmingCharacters(in: .whitespaces)
     return (timestamp, text)
+  }
+
+  /// Split a leading `**Mic:**` speaker marker off a paragraph. Pre-feature
+  /// files never carry the marker and parse with a `nil` speaker.
+  private static func splitSpeaker(_ text: String) -> (speaker: String?, text: String) {
+    guard text.hasPrefix("**"),
+      let marker = text.range(of: ":**")
+    else { return (nil, text) }
+    let label = text[text.index(text.startIndex, offsetBy: 2)..<marker.lowerBound]
+    guard SessionFileText.isSpeakerLabel(label) else { return (nil, text) }
+    let rest = text[marker.upperBound...].trimmingCharacters(in: .whitespaces)
+    return (String(label), rest)
   }
 }

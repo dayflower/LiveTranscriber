@@ -119,6 +119,17 @@ enum SessionFileText {
     return date
   }
 
+  // MARK: Speaker labels
+
+  /// Whether a parsed string is plausibly a speaker label written by this app
+  /// ("Mic", "App", "Speaker 1", …) rather than transcript text that happens
+  /// to resemble the marker syntax: short and limited to letters, digits,
+  /// spaces, underscores, and hyphens.
+  static func isSpeakerLabel(_ label: some StringProtocol) -> Bool {
+    !label.isEmpty && label.count <= 32
+      && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == " " || $0 == "_" || $0 == "-" }
+  }
+
   // MARK: Frontmatter
 
   /// Render a `--- key: value ---` frontmatter block shared by the Markdown

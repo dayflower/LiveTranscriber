@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// One in-progress (volatile) recognition text. With speaker separation two
+/// recognizers produce independent volatiles, keyed by speaker label.
+struct VolatileText: Identifiable, Equatable {
+  let speaker: String?
+  var text: String
+  var id: String { speaker ?? "" }
+}
+
 /// A transcription session: the one currently recording, or a completed one
 /// held in memory / loaded from disk.
 @MainActor
@@ -19,8 +27,10 @@ final class TranscriptSession: Identifiable {
   /// Absolute cap in seconds from start; auto-stops even during speech.
   var hardLimit: TimeInterval?
   var segments: [TranscriptSegment] = []
-  /// In-progress recognition text, updated in place; empty when idle.
-  var volatileText: String = ""
+  /// In-progress recognition texts, updated in place; empty when idle.
+  /// One entry per speaker label (a single unlabeled entry without
+  /// speaker separation).
+  var volatiles: [VolatileText] = []
   /// Whether log entries carry a timestamp prefix (captured from settings at
   /// session start; restored from frontmatter for loaded sessions).
   var timestampsEnabled: Bool = true

@@ -52,6 +52,9 @@ final class RecordingController {
 
   private var pipeline: CapturePipeline?
   private var eventTask: Task<Void, Never>?
+  /// Diarized turns for the live session, used to label finalized segments
+  /// (and retro-label recent ones — diarization arrives in chunks).
+  private var speakerTurns: [SpeakerTurn] = []
   /// Keeps App Nap / idle sleep from throttling us while recording in the
   /// background (e.g. with the window closed).
   private var activityToken: (any NSObjectProtocol)?
@@ -63,6 +66,7 @@ final class RecordingController {
     phase = .preparing
     modelDownloadProgress = nil
     lastError = nil
+    speakerTurns = []
 
     Task {
       do {
@@ -138,7 +142,7 @@ final class RecordingController {
       }
       if let session = liveSession {
         session.endedAt = Date()
-        session.volatileText = ""
+        session.volatiles = []
         liveSession = nil
         onSessionFinished?(session)
       }
@@ -161,6 +165,8 @@ final class RecordingController {
       switch event {
       case .transcript(let result):
         applyTranscript(result)
+      case .speakerTurn(let turn):
+        applySpeakerTurn(turn)
       case .speechActivity(let isSpeaking):
         silenceTracker.update(isSpeaking: isSpeaking)
         onSpeechActivity?(isSpeaking)
@@ -178,10 +184,18 @@ final class RecordingController {
 
   private func applyTranscript(_ result: TranscriptResult) {
     guard let session = liveSession else { return }
+    // Volatiles are keyed by the source label only; diarized attribution is
+    // resolved for finalized segments (turns arriving later retro-label).
+    let sourceSpeaker = Self.displayLabel(for: result.speaker)
     if result.isFinal {
-      session.volatileText = ""
+      session.volatiles.removeAll { $0.speaker == sourceSpeaker }
       let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { return }
+      let label =
+        result.speaker
+        ?? SpeakerAssigner.speaker(
+          audioStart: result.audioStart, audioEnd: result.audioEnd, turns: speakerTurns)
+      let speaker = Self.displayLabel(for: label)
       // Prefer the audio-timeline offset for the wall-clock stamp; it is
       // closer to when the words were spoken than the finalization time.
       let date: Date
@@ -194,12 +208,53 @@ final class RecordingController {
         text: text,
         date: date,
         audioStart: result.audioStart,
-        audioEnd: result.audioEnd
+        audioEnd: result.audioEnd,
+        speaker: speaker
       )
-      session.segments.append(segment)
+      // Two source-separated engines finalize on independent cadences, so
+      // arrival order is not chronological; keep the in-memory transcript
+      // sorted (the streaming file stays arrival-ordered until finalize
+      // rewrites it).
+      Self.insertSorted(segment, into: &session.segments)
       onSegmentFinalized?(session, segment)
+    } else if let index = session.volatiles.firstIndex(where: { $0.speaker == sourceSpeaker }) {
+      session.volatiles[index].text = result.text
     } else {
-      session.volatileText = result.text
+      session.volatiles.append(VolatileText(speaker: sourceSpeaker, text: result.text))
     }
+  }
+
+  /// Record a diarized turn and retro-label recent unattributed segments it
+  /// overlaps; the finalize-time rewrite persists the labels.
+  private func applySpeakerTurn(_ turn: SpeakerTurn) {
+    speakerTurns.append(turn)
+    guard let session = liveSession else { return }
+    for index in session.segments.indices.reversed() {
+      let segment = session.segments[index]
+      guard let start = segment.audioStart, let end = segment.audioEnd else { continue }
+      if end < turn.audioStart { break }
+      guard segment.speaker == nil, start < turn.audioEnd else { continue }
+      let label = SpeakerAssigner.speaker(audioStart: start, audioEnd: end, turns: speakerTurns)
+      session.segments[index].speaker = Self.displayLabel(for: label)
+    }
+  }
+
+  static func displayLabel(for speaker: SpeakerLabel?) -> String? {
+    switch speaker {
+    case .microphone: "Mic"
+    case .appAudio: "App"
+    case .diarized(let number): "Speaker \(number)"
+    case nil: nil
+    }
+  }
+
+  /// Insert keeping `segments` sorted by date. Scans from the end: appends
+  /// are O(1) in the common (already chronological) case.
+  static func insertSorted(_ segment: TranscriptSegment, into segments: inout [TranscriptSegment]) {
+    var index = segments.endIndex
+    while index > segments.startIndex, segments[segments.index(before: index)].date > segment.date {
+      index = segments.index(before: index)
+    }
+    segments.insert(segment, at: index)
   }
 }

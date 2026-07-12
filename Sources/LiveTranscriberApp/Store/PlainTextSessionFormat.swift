@@ -12,6 +12,9 @@ import Foundation
 /// [09:55:12] First finalized segment.
 /// [09:55:20] Second one.
 /// ```
+///
+/// With speaker separation an IRC-style `<Mic>` marker follows the
+/// timestamp: `[09:55:12] <Mic> text`.
 struct PlainTextSessionFormat: SessionFormat {
   let id: SessionFormatID = .plainText
 
@@ -20,11 +23,14 @@ struct PlainTextSessionFormat: SessionFormat {
   }
 
   func segmentChunk(_ segment: TranscriptSegment, timestampsEnabled: Bool) -> String {
+    var prefix = ""
     if timestampsEnabled {
-      "[\(SessionFileText.timestampFormatter.string(from: segment.date))] \(segment.text)\n"
-    } else {
-      "\(segment.text)\n"
+      prefix += "[\(SessionFileText.timestampFormatter.string(from: segment.date))] "
     }
+    if let speaker = segment.speaker {
+      prefix += "<\(speaker)> "
+    }
+    return "\(prefix)\(segment.text)\n"
   }
 
   func serialize(_ snapshot: SessionSnapshot) -> String {
@@ -46,12 +52,14 @@ struct PlainTextSessionFormat: SessionFormat {
       .map { $0.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty }
       .map { line in
-        let (timestamp, text) = Self.splitTimestamp(line)
+        let (timestamp, rest) = Self.splitTimestamp(line)
+        let (speaker, text) = Self.splitSpeaker(rest)
         let date =
           timestamp
           .flatMap { SessionFileText.date(fromTimestamp: $0, sessionStart: snapshot.startedAt) }
           ?? snapshot.startedAt
-        return TranscriptSegment(text: text, date: date, audioStart: nil, audioEnd: nil)
+        return TranscriptSegment(
+          text: text, date: date, audioStart: nil, audioEnd: nil, speaker: speaker)
       }
     return snapshot
   }
@@ -64,5 +72,18 @@ struct PlainTextSessionFormat: SessionFormat {
     let timestamp = String(line[line.index(after: line.startIndex)..<closing])
     let text = line[line.index(after: closing)...].trimmingCharacters(in: .whitespaces)
     return (timestamp, text)
+  }
+
+  /// Split a leading `<Mic>` speaker marker off a line. The label charset
+  /// check keeps pre-feature lines that happen to start with `<` from being
+  /// misread as speakers.
+  private static func splitSpeaker(_ text: String) -> (speaker: String?, text: String) {
+    guard text.hasPrefix("<"), let closing = text.firstIndex(of: ">") else {
+      return (nil, text)
+    }
+    let label = text[text.index(after: text.startIndex)..<closing]
+    guard SessionFileText.isSpeakerLabel(label) else { return (nil, text) }
+    let rest = text[text.index(after: closing)...].trimmingCharacters(in: .whitespaces)
+    return (String(label), rest)
   }
 }

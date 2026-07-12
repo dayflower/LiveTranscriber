@@ -16,6 +16,11 @@ Everything runs on your Mac using Apple's on-device speech recognition
   mixed.
 - **Live transcript**: in-progress text updates in place; finalized text
   accumulates as a log, optionally with timestamps.
+- **Speaker separation (optional)**: label transcript lines by audio source
+  (`Mic` / `App` — each source gets its own recognizer), or by anonymous
+  speaker (`Speaker 1`, `Speaker 2`, …) using on-device diarization powered by
+  [FluidAudio](https://github.com/FluidInference/FluidAudio). Chosen per
+  session when starting a recording; off by default.
 - **File saving, chosen per session**: when starting a session, decide whether
   the transcript is written to the save folder as it is recorded — Markdown,
   plain text, or JSON Lines. Session name, start/end times,
@@ -48,7 +53,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
     selected (System Settings → Privacy & Security)
   - **Calendars (full access)** — only when using the calendar suggestions
 - Network access on first use of each language: the on-device speech model is
-  downloaded once, then everything runs offline.
+  downloaded once, then everything runs offline. Speaker diarization likewise
+  downloads its models (about 100 MB) on first use.
 
 ## Install & run
 
@@ -64,10 +70,11 @@ macOS attributes the permission grants to the app.
 
 ## Using the app
 
-1. Click **Record** (⌘R) and pick the language, sources, whether to save the
-   transcript to a file, and optionally an estimated duration — or pull the
-   name and duration from a calendar event with **Fill from Calendar Event…**.
-   These choices are remembered for the next session.
+1. Click **Record** (⌘R) and pick the language, sources, speaker separation,
+   whether to save the transcript to a file, and optionally an estimated
+   duration — or pull the name and duration from a calendar event with
+   **Fill from Calendar Event…**. These choices are remembered for the next
+   session.
 2. Speak, or let the target app play audio. In-progress text appears dimmed at
    the bottom; finalized lines accumulate above it.
 3. Stop with the toolbar button, ⌘., or from the menu bar icon. Closing the
@@ -81,12 +88,14 @@ macOS attributes the permission grants to the app.
 
 | Format | Extension | Notes |
 | --- | --- | --- |
-| Markdown | `.md` | Header block + one paragraph per entry, optional `**[HH:mm:ss]**` prefix |
-| Plain text | `.txt` | Same header block + one line per entry |
-| JSON Lines | `.jsonl` | One JSON object per line; best for further processing |
+| Markdown | `.md` | Header block + one paragraph per entry, optional `**[HH:mm:ss]**` prefix; speakers as a bold `**Mic:**` marker |
+| Plain text | `.txt` | Same header block + one line per entry; speakers as an IRC-style `<Mic>` marker |
+| JSON Lines | `.jsonl` | One JSON object per line (optional `speaker` field); best for further processing |
 
 Files are written incrementally while recording, so even a crash or power
-failure loses nothing that was already finalized.
+failure loses nothing that was already finalized. With diarization, speaker
+labels for the most recent lines may only be attributed in the full rewrite
+that happens when the session stops.
 
 ## For developers
 

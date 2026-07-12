@@ -10,9 +10,15 @@ let package = Package(
     // The executable name doubles as the app-menu title under `swift run`.
     .executable(name: "LiveTranscriber", targets: ["LiveTranscriberApp"])
   ],
+  dependencies: [
+    .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.0")
+  ],
   targets: [
     .target(
       name: "LiveTranscriberCore",
+      dependencies: [
+        .product(name: "FluidAudio", package: "FluidAudio")
+      ],
       swiftSettings: [
         .swiftLanguageMode(.v6),
         .treatAllWarnings(as: .error),
@@ -28,7 +34,7 @@ let package = Package(
     ),
     .testTarget(
       name: "LiveTranscriberTests",
-      dependencies: ["LiveTranscriberApp"],
+      dependencies: ["LiveTranscriberApp", "LiveTranscriberCore"],
       swiftSettings: [
         .swiftLanguageMode(.v6),
         .treatAllWarnings(as: .error),

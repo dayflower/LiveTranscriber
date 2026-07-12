@@ -19,6 +19,11 @@ import Foundation
 /// (~4 ticks) and drops its oldest samples beyond that, bounding the latency
 /// contributed by inter-source clock drift.
 ///
+/// Feeding a single inlet is also supported: the unused inlet contributes
+/// silence and the clamp is a no-op, which makes a one-inlet instance the
+/// sanctioned silence-padding regulator for a lone ScreenCaptureKit stream
+/// (source-separation mode).
+///
 /// `@unchecked Sendable`: FIFOs are lock-protected; the timer runs on a private
 /// serial queue and calls `sink` without holding any lock.
 final class AudioMixer: @unchecked Sendable {

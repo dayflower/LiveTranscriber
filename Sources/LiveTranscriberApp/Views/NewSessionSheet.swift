@@ -12,6 +12,7 @@ struct NewSessionSheet: View {
   @AppStorage("lastMicrophoneID") private var microphoneID = ""
   @AppStorage("lastAppAudioEnabled") private var appAudioEnabled = false
   @AppStorage("lastAppSelection") private var appSelection = systemAudioTag
+  @AppStorage("lastSpeakerSeparation") private var speakerSeparation = SpeakerSeparationMode.off
   @AppStorage("lastEstimatedMinutes") private var estimatedMinutes = 0
   @AppStorage("lastSaveToFile") private var saveToFile = true
 
@@ -144,8 +145,42 @@ struct NewSessionSheet: View {
           }
         }
       }
+
+      Section {
+        Picker("Speaker separation", selection: $speakerSeparation) {
+          ForEach(SpeakerSeparationMode.allCases, id: \.self) { mode in
+            Text(mode.displayName)
+              .tag(mode)
+          }
+        }
+      } footer: {
+        if let note = speakerSeparationNote {
+          Text(note)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
     }
     .formStyle(.grouped)
+  }
+
+  private var speakerSeparationNote: String? {
+    switch speakerSeparation {
+    case .off:
+      nil
+    case .source:
+      microphoneEnabled && appAudioEnabled
+        ? String(localized: "Labels each line Mic or App, using one recognizer per source.")
+        : String(
+          localized:
+            "Needs both the microphone and application audio; with a single source this session records without speaker labels."
+        )
+    case .fluidAudio:
+      String(
+        localized:
+          "Labels lines Speaker 1, Speaker 2, … via on-device diarization. Downloads a model (about 100 MB) on first use."
+      )
+    }
   }
 
   private var hasSource: Bool {
@@ -230,6 +265,7 @@ struct NewSessionSheet: View {
       localeIdentifier: localeID,
       microphoneID: microphoneEnabled && !microphoneID.isEmpty ? microphoneID : nil,
       appAudio: appAudioSource,
+      speakerSeparation: speakerSeparation,
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds
     )
@@ -270,5 +306,15 @@ struct NewSessionSheet: View {
   private var appAudioSource: CaptureConfiguration.AppAudioSource? {
     guard appAudioEnabled else { return nil }
     return appSelection == Self.systemAudioTag ? .systemAudio : .application(bundleID: appSelection)
+  }
+}
+
+extension SpeakerSeparationMode {
+  var displayName: String {
+    switch self {
+    case .off: String(localized: "Off")
+    case .source: String(localized: "By audio source")
+    case .fluidAudio: String(localized: "Speaker diarization (FluidAudio)")
+    }
   }
 }
