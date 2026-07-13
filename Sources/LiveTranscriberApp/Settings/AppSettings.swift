@@ -43,6 +43,16 @@ final class AppSettings {
     didSet { Self.defaults.set(transcriptFontSize, forKey: "transcriptFontSize") }
   }
 
+  /// Extra points between wrapped lines within a transcript entry.
+  var transcriptLineSpacing: Double {
+    didSet { Self.defaults.set(transcriptLineSpacing, forKey: "transcriptLineSpacing") }
+  }
+
+  /// Points between transcript entries.
+  var transcriptEntrySpacing: Double {
+    didSet { Self.defaults.set(transcriptEntrySpacing, forKey: "transcriptEntrySpacing") }
+  }
+
   /// Applications listed before the rest in the new-session sheet's
   /// app-audio picker. Kept sorted by name; add via `addPriorityApp`.
   var priorityApps: [PriorityApp] {
@@ -118,6 +128,8 @@ final class AppSettings {
     timestampsEnabled = d.object(forKey: "timestampsEnabled") as? Bool ?? true
     transcriptFontName = d.string(forKey: "transcriptFontName") ?? ""
     transcriptFontSize = d.object(forKey: "transcriptFontSize") as? Double ?? 13
+    transcriptLineSpacing = d.object(forKey: "transcriptLineSpacing") as? Double ?? 0
+    transcriptEntrySpacing = d.object(forKey: "transcriptEntrySpacing") as? Double ?? 10
     priorityApps =
       (d.data(forKey: "priorityApps")
       .flatMap { try? JSONDecoder().decode([PriorityApp].self, from: $0) } ?? [])

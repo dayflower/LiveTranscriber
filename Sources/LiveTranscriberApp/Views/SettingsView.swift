@@ -237,12 +237,26 @@ private struct AppearanceSettings: View {
         Stepper(value: $settings.transcriptFontSize, in: 9...36, step: 1) {
           LabeledContent("Size", value: "\(Int(settings.transcriptFontSize)) pt")
         }
+
+        Stepper(value: $settings.transcriptLineSpacing, in: 0...20, step: 1) {
+          LabeledContent("Line spacing", value: "\(Int(settings.transcriptLineSpacing)) pt")
+        }
+
+        Stepper(value: $settings.transcriptEntrySpacing, in: 0...40, step: 1) {
+          LabeledContent("Entry spacing", value: "\(Int(settings.transcriptEntrySpacing)) pt")
+        }
       }
 
       Section("Preview") {
-        Text("The quick brown fox jumps over the lazy dog. 1234567890")
-          .font(settings.transcriptFont)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: settings.transcriptEntrySpacing) {
+          Text(
+            "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly. 1234567890"
+          )
+          Text("Pack my box with five dozen liquor jugs.")
+        }
+        .font(settings.transcriptFont)
+        .lineSpacing(settings.transcriptLineSpacing)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
     .formStyle(.grouped)

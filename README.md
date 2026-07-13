@@ -96,7 +96,8 @@ macOS attributes the permission grants to the app.
    auto-stop behavior, the minimum speaker-turn duration for diarization
    (shorter turns are ignored; lower it to pick up brief interjections at the
    cost of less reliable speaker attribution), priority applications for the
-   application picker, and the transcript font and size.
+   application picker, and the transcript font, size, and spacing (between
+   wrapped lines and between entries).
 
 ## Transcript files
 

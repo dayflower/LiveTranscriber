@@ -10,13 +10,14 @@ struct TranscriptView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: model.settings.transcriptEntrySpacing) {
           ForEach(session.segments) { segment in
             SegmentRow(
               segment: segment,
               showsTimestamp: session.timestampsEnabled,
               font: model.settings.transcriptFont,
-              captionFont: model.settings.transcriptCaptionFont
+              captionFont: model.settings.transcriptCaptionFont,
+              lineSpacing: model.settings.transcriptLineSpacing
             )
           }
           ForEach(session.volatiles.filter { !$0.text.isEmpty }) { volatile in
@@ -28,6 +29,7 @@ struct TranscriptView: View {
               }
               Text(volatile.text)
                 .font(model.settings.transcriptFont)
+                .lineSpacing(model.settings.transcriptLineSpacing)
                 .foregroundStyle(.secondary)
                 .italic()
             }
@@ -71,6 +73,7 @@ private struct SegmentRow: View {
   let showsTimestamp: Bool
   let font: Font
   let captionFont: Font
+  let lineSpacing: Double
 
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -84,6 +87,7 @@ private struct SegmentRow: View {
       }
       Text(segment.text)
         .font(font)
+        .lineSpacing(lineSpacing)
         .textSelection(.enabled)
     }
   }
