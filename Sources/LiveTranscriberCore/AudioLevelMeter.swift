@@ -33,6 +33,14 @@ final class AudioLevelMeter: @unchecked Sendable {
     }
   }
 
+  /// Returns a sink that measures each buffer without forwarding it, for
+  /// metering a stream that is consumed elsewhere (e.g. a mixer inlet tap).
+  func monitor() -> @Sendable (AVAudioPCMBuffer) -> Void {
+    { [weak self] buffer in
+      self?.measure(buffer)
+    }
+  }
+
   private func measure(_ buffer: AVAudioPCMBuffer) {
     let frames = Int(buffer.frameLength)
     guard frames > 0 else { return }

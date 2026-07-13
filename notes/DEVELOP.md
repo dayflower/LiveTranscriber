@@ -59,8 +59,8 @@ Two targets plus tests:
   | `AppAudioCapture.swift` | ScreenCaptureKit app/system audio capture + capturable-app listing |
   | `MicrophoneCapture.swift` | AVCaptureSession microphone capture + device listing |
   | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream (single-inlet use doubles as a silence padder) |
-  | `AudioLevelMeter.swift` | RMS tap on the engine sink for the UI level meter |
-  | `SourceMergers.swift` | `ActivityMerger`/`LevelMerger`: fold two engines' speech-activity and level events into one session-level signal |
+  | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
+  | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
   | `SpeakerDiarizer.swift` | FluidAudio diarization actor: taps the engine stream, emits `.speakerTurn` events |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
   | `ModelManager.swift` | `AssetInventory` locale support/reservation/download |
@@ -110,10 +110,9 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     nothing during system silence and the engine's audio timeline would fall
     behind the wall clock. Each engine's transcripts are labeled
     (`SpeakerLabel.microphone`/`.appAudio`); the two detectors' activity is
-    OR-merged and the two level meters max-merged (`SourceMergers.swift`) so
-    downstream consumers keep seeing one session-level signal. Segments from
-    the two engines finalize on independent cadences, so
-    `RecordingController` insert-sorts them by date.
+    OR-merged (`SourceMergers.swift`) so silence-driven consumers keep seeing
+    one session-level signal. Segments from the two engines finalize on
+    independent cadences, so `RecordingController` insert-sorts them by date.
   - `.fluidAudio` (any source count) — the `.off` topology plus a passthrough
     tap on the engine sink feeding `SpeakerDiarizer`, which converts to
     16 kHz mono Float32, accumulates 10 s chunks, runs FluidAudio, and emits
@@ -127,7 +126,9 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   sides. A wall-clock timer (100 ms) drains a fixed frame count from both
   per-source FIFOs, sums and clamps to [-1, 1] (summing keeps full level for a
   lone speaker), and pads missing samples with silence. FIFOs are capped
-  (~400 ms) to bound drift-induced latency.
+  (~400 ms) to bound drift-induced latency. Per-source level meters tap each
+  inlet's silence-padded per-tick contribution inside the mixer, so an idle
+  source meters as zero rather than freezing at its last level.
 - **No buffer timestamps**: `AnalyzerInput` is fed without `bufferStartTime`.
   Sample-rate conversion rounds buffer lengths, so source timestamps would
   overlap ("timestamp overlaps or precedes" errors); the analyzer sequences

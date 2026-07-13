@@ -1,3 +1,4 @@
+import LiveTranscriberCore
 import SwiftUI
 
 /// Toolbar contents reflecting the recording state: record/stop, elapsed time,
@@ -38,7 +39,13 @@ struct RecordingToolbar: ToolbarContent {
             .foregroundStyle(.secondary)
           EstimatedDurationMenu(session: session)
         }
-        LevelMeter(level: model.recording.audioLevel)
+        if let level = model.recording.audioLevels[.microphone] {
+          LevelMeter(level: level, icon: "mic.fill", help: String(localized: "Microphone level"))
+        }
+        if let level = model.recording.audioLevels[.appAudio] {
+          LevelMeter(
+            level: level, icon: "macwindow", help: String(localized: "Application audio level"))
+        }
         Button {
           model.recording.stop()
         } label: {
@@ -108,18 +115,25 @@ private struct EstimatedDurationMenu: View {
   }
 }
 
-/// Small input-level indicator. Speech RMS rarely exceeds ~0.3, so the value
-/// is scaled up for a useful visual range.
+/// Small per-source input-level indicator. Speech RMS rarely exceeds ~0.3, so
+/// the value is scaled up for a useful visual range.
 private struct LevelMeter: View {
   let level: Float
+  let icon: String
+  let help: String
 
   var body: some View {
-    Gauge(value: min(1, Double(level) * 3)) {
-      EmptyView()
+    HStack(spacing: 4) {
+      Image(systemName: icon)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Gauge(value: min(1, Double(level) * 3)) {
+        EmptyView()
+      }
+      .gaugeStyle(.accessoryLinearCapacity)
+      .tint(.green)
+      .frame(width: 50)
     }
-    .gaugeStyle(.accessoryLinearCapacity)
-    .tint(.green)
-    .frame(width: 60)
-    .help("Input level")
+    .help(help)
   }
 }

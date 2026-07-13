@@ -59,6 +59,12 @@ public struct SpeakerTurn: Sendable {
   }
 }
 
+/// Which capture stream a metering value belongs to.
+public enum AudioSource: Sendable, Hashable {
+  case microphone
+  case appAudio
+}
+
 /// Events flowing out of `CapturePipeline` toward the UI layer.
 public enum TranscriptionEvent: Sendable {
   /// A volatile or final transcription result.
@@ -68,8 +74,8 @@ public enum TranscriptionEvent: Sendable {
   case speakerTurn(SpeakerTurn)
   /// Speech presence change reported by `SpeechDetector`.
   case speechActivity(isSpeaking: Bool)
-  /// Smoothed input level (linear RMS, 0...1) for UI metering.
-  case audioLevel(Float)
+  /// Smoothed input level (linear RMS, 0...1) of one source, for UI metering.
+  case audioLevel(source: AudioSource, level: Float)
   /// Progress (0...1) of the on-device model download for the locale.
   case modelDownload(progress: Double)
   /// Human-readable status suited for logs / status lines.

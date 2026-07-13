@@ -140,11 +140,13 @@ public actor CapturePipeline {
       // mixer purely for silence padding, because ScreenCaptureKit delivers
       // nothing during system silence and the engine's audio timeline would
       // otherwise fall behind the wall clock.
-      let levelMerger = LevelMerger { continuation.yield(.audioLevel($0)) }
       for entry in engines {
         guard let label = entry.label else { continue }
         let input = entry.engine.input
-        let meter = AudioLevelMeter { levelMerger.update(label, level: $0) }
+        let source: AudioSource = label == .microphone ? .microphone : .appAudio
+        let meter = AudioLevelMeter {
+          continuation.yield(.audioLevel(source: source, level: $0))
+        }
         levelMeters.append(meter)
         let engineSink = meter.tap { input.yield(AnalyzerInput(buffer: $0)) }
 
@@ -167,8 +169,6 @@ public actor CapturePipeline {
     } else {
       let engine = engines[0].engine
       let input = engine.input
-      let meter = AudioLevelMeter { continuation.yield(.audioLevel($0)) }
-      levelMeters.append(meter)
       var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
         input.yield(AnalyzerInput(buffer: $0))
       }
@@ -178,13 +178,27 @@ public actor CapturePipeline {
         await diarizer.start()
         engineFeed = diarizer.tap(engineFeed)
       }
-      let engineSink = meter.tap(engineFeed)
 
       // Single source feeds the engine directly; two sources go through the
       // mixer, whose clock then defines the timeline.
       let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
       if mixing {
-        let mixer = AudioMixer(outputFormat: engine.audioFormat, sink: engineSink, onError: onError)
+        // Per-source levels are measured on the mixer's inlet taps (after
+        // silence padding), not on the mixed output.
+        let appMeter = AudioLevelMeter {
+          continuation.yield(.audioLevel(source: .appAudio, level: $0))
+        }
+        let microphoneMeter = AudioLevelMeter {
+          continuation.yield(.audioLevel(source: .microphone, level: $0))
+        }
+        levelMeters.append(contentsOf: [appMeter, microphoneMeter])
+        let mixer = AudioMixer(
+          outputFormat: engine.audioFormat,
+          appTap: appMeter.monitor(),
+          microphoneTap: microphoneMeter.monitor(),
+          sink: engineFeed,
+          onError: onError
+        )
         mixers.append(mixer)
         let appInlet = mixer.appInlet
         let microphoneInlet = mixer.microphoneInlet
@@ -194,6 +208,12 @@ public actor CapturePipeline {
         microphoneCaptureFormat = mixer.workingFormat
         mixer.start()
       } else {
+        let source: AudioSource = configuration.microphoneID != nil ? .microphone : .appAudio
+        let meter = AudioLevelMeter {
+          continuation.yield(.audioLevel(source: source, level: $0))
+        }
+        levelMeters.append(meter)
+        let engineSink = meter.tap(engineFeed)
         appSink = engineSink
         microphoneSink = engineSink
         appCaptureFormat = engine.audioFormat

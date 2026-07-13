@@ -32,26 +32,3 @@ final class ActivityMerger: @unchecked Sendable {
     }
   }
 }
-
-/// Merges per-source audio levels into one meter value: the max of each
-/// source's latest report, so the meter reflects whichever stream is active.
-///
-/// `@unchecked Sendable`: state is lock-protected; updates arrive from the
-/// per-source metering taps.
-final class LevelMerger: @unchecked Sendable {
-  private let lock = NSLock()
-  private var levels: [SpeakerLabel: Float] = [:]
-  private let onLevel: @Sendable (Float) -> Void
-
-  init(onLevel: @escaping @Sendable (Float) -> Void) {
-    self.onLevel = onLevel
-  }
-
-  func update(_ label: SpeakerLabel, level: Float) {
-    lock.lock()
-    levels[label] = level
-    let merged = levels.values.max() ?? 0
-    lock.unlock()
-    onLevel(merged)
-  }
-}

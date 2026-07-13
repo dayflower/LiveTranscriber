@@ -41,19 +41,6 @@ struct SpeakerSeparationTests {
     #expect(reports.values == [true, false, true])
   }
 
-  @Test
-  func levelMergerReportsMaxOfLatestLevels() {
-    let reports = Recorder<Float>()
-    let merger = LevelMerger { reports.append($0) }
-
-    merger.update(.microphone, level: 0.2)
-    merger.update(.appAudio, level: 0.6)
-    merger.update(.appAudio, level: 0.1)  // mic's 0.2 wins again
-    merger.update(.microphone, level: 0)
-
-    #expect(reports.values == [0.2, 0.6, 0.2, 0.1])
-  }
-
   @MainActor
   @Test
   func insertSortedKeepsSegmentsChronological() {

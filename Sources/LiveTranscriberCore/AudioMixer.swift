@@ -76,20 +76,29 @@ final class AudioMixer: @unchecked Sendable {
   private let outputFormat: AVAudioFormat
   private let sink: @Sendable (AVAudioPCMBuffer) -> Void
   private let onError: @Sendable (String) -> Void
+  private let appTap: (@Sendable (AVAudioPCMBuffer) -> Void)?
+  private let microphoneTap: (@Sendable (AVAudioPCMBuffer) -> Void)?
   private let framesPerTick: Int
   private let tickInterval: TimeInterval
   private let converter = BufferConverter()
   private let timerQueue = DispatchQueue(label: "live-transcriber.mixer")
   private var timer: DispatchSourceTimer?
 
+  /// `appTap`/`microphoneTap` observe each inlet's per-tick contribution
+  /// *after* silence padding (in `workingFormat`), so a per-source level
+  /// meter falls to zero while that source delivers nothing.
   init(
     outputFormat: AVAudioFormat,
     tickInterval: TimeInterval = 0.1,
+    appTap: (@Sendable (AVAudioPCMBuffer) -> Void)? = nil,
+    microphoneTap: (@Sendable (AVAudioPCMBuffer) -> Void)? = nil,
     sink: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     onError: @escaping @Sendable (String) -> Void = { _ in }
   ) {
     self.outputFormat = outputFormat
     self.tickInterval = tickInterval
+    self.appTap = appTap
+    self.microphoneTap = microphoneTap
     self.sink = sink
     self.onError = onError
     self.workingFormat = AVAudioFormat(
@@ -127,8 +136,8 @@ final class AudioMixer: @unchecked Sendable {
     mixed.frameLength = AVAudioFrameCount(framesPerTick)
     destination.update(repeating: 0, count: framesPerTick)
 
-    appInlet.mix(into: destination, count: framesPerTick)
-    microphoneInlet.mix(into: destination, count: framesPerTick)
+    mixInlet(appInlet, tap: appTap, into: destination)
+    mixInlet(microphoneInlet, tap: microphoneTap, into: destination)
     for index in 0..<framesPerTick {
       destination[index] = min(1, max(-1, destination[index]))
     }
@@ -137,6 +146,31 @@ final class AudioMixer: @unchecked Sendable {
       sink(try converter.convert(mixed, to: outputFormat))
     } catch {
       onError("mix conversion failed: \(error.localizedDescription)")
+    }
+  }
+
+  /// Add one inlet's tick worth of samples into `destination`. With a tap,
+  /// the inlet is drained into a zeroed scratch buffer first so the tap sees
+  /// the silence-padded per-source signal.
+  private func mixInlet(
+    _ inlet: Inlet,
+    tap: (@Sendable (AVAudioPCMBuffer) -> Void)?,
+    into destination: UnsafeMutablePointer<Float>
+  ) {
+    guard let tap,
+      let scratch = AVAudioPCMBuffer(
+        pcmFormat: workingFormat, frameCapacity: AVAudioFrameCount(framesPerTick)),
+      let samples = scratch.floatChannelData?[0]
+    else {
+      inlet.mix(into: destination, count: framesPerTick)
+      return
+    }
+    scratch.frameLength = AVAudioFrameCount(framesPerTick)
+    samples.update(repeating: 0, count: framesPerTick)
+    inlet.mix(into: samples, count: framesPerTick)
+    tap(scratch)
+    for index in 0..<framesPerTick {
+      destination[index] += samples[index]
     }
   }
 }

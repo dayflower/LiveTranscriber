@@ -30,8 +30,9 @@ final class RecordingController {
 
   private(set) var phase: Phase = .idle
   private(set) var liveSession: TranscriptSession?
-  /// Smoothed input level (0...1) while recording.
-  private(set) var audioLevel: Float = 0
+  /// Smoothed input level (0...1) per active source while recording. Keys
+  /// are seeded from the session plan so meters render before audio flows.
+  private(set) var audioLevels: [AudioSource: Float] = [:]
   /// Model download progress (0...1) while preparing, `nil` otherwise.
   private(set) var modelDownloadProgress: Double?
   var lastError: String?
@@ -91,6 +92,9 @@ final class RecordingController {
         liveSession = session
         try await pipeline.start()
         modelDownloadProgress = nil
+        audioLevels = [:]
+        if plan.configuration.microphoneID != nil { audioLevels[.microphone] = 0 }
+        if plan.configuration.appAudio != nil { audioLevels[.appAudio] = 0 }
         activityToken = ProcessInfo.processInfo.beginActivity(
           options: [.userInitiated, .idleSystemSleepDisabled],
           reason: "Recording a transcription session"
@@ -146,7 +150,7 @@ final class RecordingController {
         liveSession = nil
         onSessionFinished?(session)
       }
-      audioLevel = 0
+      audioLevels = [:]
       phase = .idle
     }
   }
@@ -170,8 +174,8 @@ final class RecordingController {
       case .speechActivity(let isSpeaking):
         silenceTracker.update(isSpeaking: isSpeaking)
         onSpeechActivity?(isSpeaking)
-      case .audioLevel(let level):
-        audioLevel = level
+      case .audioLevel(let source, let level):
+        audioLevels[source] = level
       case .modelDownload(let progress):
         modelDownloadProgress = progress
       case .info:
