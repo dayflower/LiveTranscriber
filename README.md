@@ -50,7 +50,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
   Settings.
 - **Calendar integration**: apply a calendar event's title and duration to a
   session with one click; the name gets the event's start time as a
-  `YYYYMMDD HHMM` prefix. Candidates are ranked by how close their start time
+  `YYYYMMDD HHMM` prefix, and the estimated duration is the time until the
+  event ends, rounded up to 15-minute steps. Candidates are ranked by how close their start time
   is to the session start — a session started at 09:55 matches the 10:00
   event, one started at 09:15 matches the 09:00 event.
 

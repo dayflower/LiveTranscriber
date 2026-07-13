@@ -253,11 +253,13 @@ struct NewSessionSheet: View {
 
   /// Applying an event: start time + title → session name; time to the
   /// event's end → estimated duration (the session presumably ends when the
-  /// meeting does).
+  /// meeting does). Rounded up to 15-minute steps so filling in shortly
+  /// after the event starts still yields the nominal duration (30, not 29).
   private func applyCalendarEvent(_ candidate: CalendarService.EventCandidate) {
     sessionName = "\(TranscriptSession.defaultName(for: candidate.startDate)) - \(candidate.title)"
     let remaining = candidate.endDate.timeIntervalSince(.now)
-    estimatedMinutes = max(1, Int((remaining / 60).rounded()))
+    let quarterHours = (remaining / (15 * 60)).rounded(.up)
+    estimatedMinutes = max(15, Int(quarterHours) * 15)
   }
 
   // MARK: - Data loading
