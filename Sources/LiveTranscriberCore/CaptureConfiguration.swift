@@ -8,8 +8,16 @@ public enum SpeakerSeparationMode: String, CaseIterable, Sendable {
   /// segments by capture source. Requires both sources; degrades to `off`
   /// otherwise.
   case source
-  /// Run FluidAudio speaker diarization on the transcribed stream and label
-  /// segments with anonymous speaker numbers.
+  /// Label microphone segments by source and run FluidAudio diarization on
+  /// the app audio stream only (the microphone usually carries one known
+  /// person). Requires both sources; degrades to `fluidAudio` with app audio
+  /// alone and to `off` with the microphone alone.
+  case hybrid
+  /// Run FluidAudio speaker diarization and label segments with anonymous
+  /// speaker numbers. With both sources active each stream is transcribed
+  /// and diarized independently (never on the mix — overlapping speech on a
+  /// mixed stream collapses into one speaker); numbers count per stream and
+  /// the UI prefixes them with the source ("Mic Speaker 1").
   case fluidAudio
 }
 

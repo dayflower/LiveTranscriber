@@ -19,9 +19,13 @@ Everything runs on your Mac using Apple's on-device speech recognition
   accumulates as a log, optionally with timestamps.
 - **Speaker separation (optional)**: label transcript lines by audio source
   (`Mic` / `App` — each source gets its own recognizer), or by anonymous
-  speaker (`Speaker 1`, `Speaker 2`, …) using on-device diarization powered by
-  [FluidAudio](https://github.com/FluidInference/FluidAudio). Chosen per
-  session when starting a recording; off by default.
+  speaker (`Mic Speaker 1`, `App Speaker 1`, …) using on-device diarization
+  powered by [FluidAudio](https://github.com/FluidInference/FluidAudio).
+  Diarization always runs on each capture stream separately, never on the
+  mic+app mix (where overlapping speech would collapse into one speaker); a
+  hybrid mode labels microphone lines `Mic` and diarizes only the
+  application audio. Chosen per session when starting a recording; off by
+  default.
 - **File saving, chosen per session**: when starting a session, decide whether
   the transcript is written to the save folder as it is recorded — Markdown,
   plain text, or JSON Lines. Session name, start/end times,

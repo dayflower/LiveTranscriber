@@ -150,6 +150,10 @@ final class RecordingController {
         activityToken = nil
       }
       if let session = liveSession {
+        // All turns have arrived (teardown drained the event stream), so
+        // remaining provisional labels can bind to their nearest turn
+        // before the finalize rewrite persists them.
+        finalizeSpeakerLabels(session)
         session.endedAt = Date()
         session.volatiles = []
         liveSession = nil
@@ -193,18 +197,24 @@ final class RecordingController {
 
   private func applyTranscript(_ result: TranscriptResult) {
     guard let session = liveSession else { return }
-    // Volatiles are keyed by the source label only; diarized attribution is
-    // resolved for finalized segments (turns arriving later retro-label).
-    let sourceSpeaker = Self.displayLabel(for: result.speaker)
+    // Volatiles are keyed per engine: by the stamped speaker label, or by
+    // the source when the diarizer attributes segments instead (diarization
+    // lags, so live text provisionally shows Mic/App). Diarized attribution
+    // is resolved for finalized segments (turns arriving later retro-label).
+    let volatileKey = Self.displayLabel(for: result.speaker ?? Self.label(for: result.source))
     if result.isFinal {
-      session.volatiles.removeAll { $0.speaker == sourceSpeaker }
+      session.volatiles.removeAll { $0.speaker == volatileKey }
       let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { return }
+      // Stamped label, else diarized attribution, else the bare source as a
+      // provisional label (diarization lags; retro-labeling upgrades it).
       let label =
         result.speaker
         ?? SpeakerAssigner.speaker(
-          audioStart: result.audioStart, audioEnd: result.audioEnd, turns: speakerTurns)
-      let speaker = Self.displayLabel(for: label)
+          audioStart: result.audioStart, audioEnd: result.audioEnd, turns: speakerTurns,
+          scope: result.source)
+        ?? Self.label(for: result.source)
+      let speaker = Self.displayLabel(for: label, source: result.source)
       // Prefer the audio-timeline offset for the wall-clock stamp; it is
       // closer to when the words were spoken than the finalization time.
       let date: Date
@@ -218,7 +228,8 @@ final class RecordingController {
         date: date,
         audioStart: result.audioStart,
         audioEnd: result.audioEnd,
-        speaker: speaker
+        speaker: speaker,
+        source: result.source
       )
       // Two source-separated engines finalize on independent cadences, so
       // arrival order is not chronological; keep the in-memory transcript
@@ -226,33 +237,83 @@ final class RecordingController {
       // rewrites it).
       Self.insertSorted(segment, into: &session.segments)
       onSegmentFinalized?(session, segment)
-    } else if let index = session.volatiles.firstIndex(where: { $0.speaker == sourceSpeaker }) {
+    } else if let index = session.volatiles.firstIndex(where: { $0.speaker == volatileKey }) {
       session.volatiles[index].text = result.text
     } else {
-      session.volatiles.append(VolatileText(speaker: sourceSpeaker, text: result.text))
+      session.volatiles.append(VolatileText(speaker: volatileKey, text: result.text))
     }
   }
 
-  /// Record a diarized turn and retro-label recent unattributed segments it
-  /// overlaps; the finalize-time rewrite persists the labels.
+  /// Record a diarized turn and retro-label recent segments that are
+  /// unattributed or still carry the provisional source label; the
+  /// finalize-time rewrite persists the labels. Turns only apply to segments
+  /// from the same source (independent timelines). The scan reaches back one
+  /// fallback window past the turn so segments the diarizer skipped can bind
+  /// to their nearest turn.
   private func applySpeakerTurn(_ turn: SpeakerTurn) {
     speakerTurns.append(turn)
     guard let session = liveSession else { return }
     for index in session.segments.indices.reversed() {
       let segment = session.segments[index]
       guard let start = segment.audioStart, let end = segment.audioEnd else { continue }
-      if end < turn.audioStart { break }
-      guard segment.speaker == nil, start < turn.audioEnd else { continue }
-      let label = SpeakerAssigner.speaker(audioStart: start, audioEnd: end, turns: speakerTurns)
-      session.segments[index].speaker = Self.displayLabel(for: label)
+      if end < turn.audioStart - SpeakerAssigner.fallbackWindow { break }
+      guard start < turn.audioEnd + SpeakerAssigner.fallbackWindow else { continue }
+      relabel(session, at: index, sessionEnded: false)
     }
   }
 
-  static func displayLabel(for speaker: SpeakerLabel?) -> String? {
+  /// Bind segments that never matched a turn to their nearest one now that
+  /// no more turns can arrive (runs after the event stream has drained).
+  private func finalizeSpeakerLabels(_ session: TranscriptSession) {
+    guard !speakerTurns.isEmpty else { return }
+    for index in session.segments.indices {
+      relabel(session, at: index, sessionEnded: true)
+    }
+  }
+
+  /// Re-run speaker assignment for one segment if it is still unattributed,
+  /// provisionally labeled by its source, or in the unknown-speaker bucket
+  /// (turns from the same chunk arrive one by one; a later one may match).
+  private func relabel(_ session: TranscriptSession, at index: Int, sessionEnded: Bool) {
+    let segment = session.segments[index]
+    let provisional = Self.displayLabel(for: Self.label(for: segment.source))
+    let unknown = Self.displayLabel(for: .diarized(0), source: segment.source)
+    guard
+      segment.speaker == nil || segment.speaker == provisional || segment.speaker == unknown
+    else { return }
+    if let label = SpeakerAssigner.speaker(
+      audioStart: segment.audioStart, audioEnd: segment.audioEnd, turns: speakerTurns,
+      scope: segment.source, sessionEnded: sessionEnded)
+    {
+      session.segments[index].speaker = Self.displayLabel(for: label, source: segment.source)
+    }
+  }
+
+  /// Display string for a speaker label. Diarized numbers count per stream,
+  /// so with an engine per source they are prefixed by the segment's source
+  /// ("Mic Speaker 1" / "App Speaker 1"); single-engine sessions have no
+  /// source and show a bare "Speaker 1".
+  static func displayLabel(for speaker: SpeakerLabel?, source: AudioSource? = nil) -> String? {
     switch speaker {
     case .microphone: "Mic"
     case .appAudio: "App"
-    case .diarized(let number): "Speaker \(number)"
+    case .diarized(let number):
+      switch source {
+      case .microphone: "Mic Speaker \(number)"
+      case .appAudio: "App Speaker \(number)"
+      case nil: "Speaker \(number)"
+      }
+    case nil: nil
+    }
+  }
+
+  /// The provisional speaker label a capture stream implies (used to key and
+  /// caption volatiles, and to label finalized segments while diarized
+  /// attribution is pending).
+  static func label(for source: AudioSource?) -> SpeakerLabel? {
+    switch source {
+    case .microphone: .microphone
+    case .appAudio: .appAudio
     case nil: nil
     }
   }

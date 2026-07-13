@@ -35,21 +35,41 @@ public actor CapturePipeline {
   /// them synchronously while audio flows.
   private nonisolated let microphoneGain: AudioGain
   private nonisolated let appAudioGain: AudioGain
-  private var engines: [(label: SpeakerLabel?, engine: TranscriptionEngine)] = []
+  private var engines: [(source: AudioSource?, engine: TranscriptionEngine)] = []
   private var microphone: MicrophoneCapture?
   private var appAudio: AppAudioCapture?
   private var mixers: [AudioMixer] = []
   private var levelMeters: [AudioLevelMeter] = []
   private var engineTasks: [Task<Void, Never>] = []
-  private var diarizer: SpeakerDiarizer?
+  private var diarizers: [AudioSource: SpeakerDiarizer] = [:]
   private var stopped = false
 
-  /// Source separation needs one engine per source; with a single source the
-  /// mode degrades to plain (unlabeled) transcription.
-  private var separatesBySource: Bool {
-    configuration.speakerSeparation == .source
+  /// Every separation mode keeps the two capture streams apart, with one
+  /// engine per source — audio is only ever mixed when separation is off.
+  /// With a single source each mode degrades to a single unlabeled engine.
+  private var usesEnginePerSource: Bool {
+    configuration.speakerSeparation != .off
       && configuration.microphoneID != nil
       && configuration.appAudio != nil
+  }
+
+  /// Streams that get their own FluidAudio diarizer. Diarization always runs
+  /// per stream, never on a mix; `.hybrid` skips the microphone (it is
+  /// attributed by source instead).
+  private var diarizedSources: [AudioSource] {
+    var sources: [AudioSource] = []
+    switch configuration.speakerSeparation {
+    case .off, .source:
+      return []
+    case .fluidAudio:
+      if configuration.microphoneID != nil { sources.append(.microphone) }
+      if configuration.appAudio != nil { sources.append(.appAudio) }
+    case .hybrid:
+      // With app audio alone this equals full diarization of the one
+      // stream; with the microphone alone there is nothing to diarize.
+      if configuration.appAudio != nil { sources.append(.appAudio) }
+    }
+    return sources
   }
 
   public init(configuration: CaptureConfiguration) {
@@ -89,17 +109,20 @@ public actor CapturePipeline {
       periodicFinalizeSeconds: configuration.periodicFinalizeSeconds
     )
 
-    if separatesBySource {
-      // Two engines share the one events stream: transcripts carry a source
-      // label, and both detectors' activity is OR-merged so silence-driven
+    if usesEnginePerSource {
+      // Two engines share the one events stream: transcripts carry their
+      // source (and, when the mode attributes by source, a speaker label),
+      // and both detectors' activity is OR-merged so silence-driven
       // consumers see a single session-level signal.
       let merger = ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
-      for label in [SpeakerLabel.microphone, .appAudio] {
+      for source in [AudioSource.microphone, .appAudio] {
         let engine = try await TranscriptionEngine.start(
           options: options,
-          emit: Self.labelingEmit(label: label, merger: merger, continuation: continuation)
+          emit: Self.labelingEmit(
+            speaker: speakerLabel(for: source), source: source,
+            merger: merger, continuation: continuation)
         )
-        engines.append((label, engine))
+        engines.append((source, engine))
       }
     } else {
       let engine = try await TranscriptionEngine.start(
@@ -109,23 +132,39 @@ public actor CapturePipeline {
       engines.append((nil, engine))
     }
 
-    if configuration.speakerSeparation == .fluidAudio {
-      diarizer = try await SpeakerDiarizer.prepare(emit: { continuation.yield($0) })
+    let sources = diarizedSources
+    if !sources.isEmpty {
+      diarizers = try await SpeakerDiarizer.prepare(
+        sources: sources, emit: { continuation.yield($0) })
     }
     return locale
   }
 
+  /// Speaker label an engine stamps on its transcripts, `nil` where the
+  /// diarizer attributes them instead.
+  private func speakerLabel(for source: AudioSource) -> SpeakerLabel? {
+    switch configuration.speakerSeparation {
+    case .source:
+      return source == .microphone ? .microphone : .appAudio
+    case .hybrid:
+      return source == .microphone ? .microphone : nil
+    case .off, .fluidAudio:
+      return nil
+    }
+  }
+
   private static func labelingEmit(
-    label: SpeakerLabel,
+    speaker: SpeakerLabel?,
+    source: AudioSource,
     merger: ActivityMerger,
     continuation: AsyncStream<TranscriptionEvent>.Continuation
   ) -> @Sendable (TranscriptionEvent) -> Void {
     { event in
       switch event {
       case .transcript(let result):
-        continuation.yield(.transcript(result.with(speaker: label)))
+        continuation.yield(.transcript(result.with(speaker: speaker, source: source)))
       case .speechActivity(let isSpeaking):
-        merger.update(label, isSpeaking: isSpeaking)
+        merger.update(source, isSpeaking: isSpeaking)
       default:
         continuation.yield(event)
       }
@@ -149,23 +188,31 @@ public actor CapturePipeline {
     var appCaptureFormat: AVAudioFormat?
     var microphoneCaptureFormat: AVAudioFormat?
 
-    if separatesBySource {
+    if usesEnginePerSource {
       // One engine per source. The microphone delivers continuously and
       // feeds its engine directly; app audio goes through a single-inlet
       // mixer purely for silence padding, because ScreenCaptureKit delivers
       // nothing during system silence and the engine's audio timeline would
-      // otherwise fall behind the wall clock.
+      // otherwise fall behind the wall clock. A diarized source's diarizer
+      // taps the exact stream its engine consumes (post-padding for app
+      // audio), so turn offsets share that engine's timeline origin.
       for entry in engines {
-        guard let label = entry.label else { continue }
+        guard let source = entry.source else { continue }
         let input = entry.engine.input
-        let source: AudioSource = label == .microphone ? .microphone : .appAudio
         let meter = AudioLevelMeter {
           continuation.yield(.audioLevel(source: source, level: $0))
         }
         levelMeters.append(meter)
-        let engineSink = meter.tap { input.yield(AnalyzerInput(buffer: $0)) }
+        var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
+          input.yield(AnalyzerInput(buffer: $0))
+        }
+        if let diarizer = diarizers[source] {
+          await diarizer.start()
+          engineFeed = diarizer.tap(engineFeed)
+        }
+        let engineSink = meter.tap(engineFeed)
 
-        switch label {
+        switch source {
         case .microphone:
           microphoneSink = microphoneGain.tap(engineSink)
           microphoneCaptureFormat = entry.engine.audioFormat
@@ -177,8 +224,6 @@ public actor CapturePipeline {
           appSink = appAudioGain.tap { inlet.feed($0) }
           appCaptureFormat = padder.workingFormat
           padder.start()
-        case .diarized:
-          break
         }
       }
     } else {
@@ -187,9 +232,11 @@ public actor CapturePipeline {
       var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
         input.yield(AnalyzerInput(buffer: $0))
       }
-      // The diarizer taps the exact stream the engine consumes, so its
-      // accumulated sample offsets share the transcriber's timeline origin.
-      if let diarizer {
+      // Single-engine sessions have at most one diarizer (a lone diarized
+      // source; separation off is the only way into the mixing path). It
+      // taps the exact stream the engine consumes, so its accumulated
+      // sample offsets share the transcriber's timeline origin.
+      if let diarizer = diarizers.values.first {
         await diarizer.start()
         engineFeed = diarizer.tap(engineFeed)
       }
@@ -270,9 +317,11 @@ public actor CapturePipeline {
     for mixer in mixers {
       mixer.stop()
     }
-    // Flush the diarizer's tail before the events stream can finish, or
+    // Flush the diarizers' tails before the events stream can finish, or
     // trailing segments would stay unlabeled.
-    await diarizer?.finish()
+    for diarizer in diarizers.values {
+      await diarizer.finish()
+    }
     for entry in engines {
       await entry.engine.finish()
     }

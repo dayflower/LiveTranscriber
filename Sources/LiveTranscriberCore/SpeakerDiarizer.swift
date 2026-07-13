@@ -5,11 +5,16 @@ import Foundation
 /// Runs FluidAudio speaker diarization in parallel with transcription and
 /// emits `.speakerTurn` events.
 ///
-/// Audio taps in via `tap(_:)` on the exact stream the recognition engine
-/// consumes, so accumulated sample offsets share the transcriber's timeline
-/// origin. Buffers are converted to 16 kHz mono Float32 on the delivering
-/// queue and diarized in fixed chunks inside the actor; FluidAudio's
-/// `SpeakerManager` keeps speaker identities consistent across chunks. The
+/// One instance diarizes one capture stream. Audio taps in via `tap(_:)` on
+/// the exact stream the recognition engine consumes, so accumulated sample
+/// offsets share that engine's timeline origin, and emitted turns carry the
+/// stream's `AudioSource` so they only match transcripts from the same
+/// source. Speaker numbers count from 1 per instance; the app layer prefixes
+/// them with the source, so numbers only need to be unique per stream.
+/// Buffers are converted to 16 kHz mono Float32 on the delivering queue and
+/// diarized in fixed chunks inside the actor; FluidAudio's `SpeakerManager`
+/// keeps speaker identities consistent across chunks (but not across
+/// instances — a voice present on both streams becomes two speakers). The
 /// audio only ever lives in memory.
 actor SpeakerDiarizer {
   /// FluidAudio's diarization models operate on 16 kHz mono Float32.
@@ -51,6 +56,7 @@ actor SpeakerDiarizer {
   }
 
   private let manager: DiarizerManager
+  private let source: AudioSource
   private let emit: @Sendable (TranscriptionEvent) -> Void
   private let feed: Feed
   private let samples: AsyncStream<[Float]>
@@ -58,12 +64,16 @@ actor SpeakerDiarizer {
   private var buffered: [Float] = []
   /// Absolute frame offset of `buffered[0]` on the session audio timeline.
   private var processedFrames = 0
-  /// FluidAudio cluster IDs mapped to stable 1-based numbers in order of
-  /// first appearance.
+  /// This instance's FluidAudio cluster IDs mapped to stable 1-based numbers
+  /// in order of first appearance.
   private var speakerNumbers: [String: Int] = [:]
 
-  private init(manager: DiarizerManager, emit: @escaping @Sendable (TranscriptionEvent) -> Void) {
+  private init(
+    manager: DiarizerManager, source: AudioSource,
+    emit: @escaping @Sendable (TranscriptionEvent) -> Void
+  ) {
     self.manager = manager
+    self.source = source
     self.emit = emit
     let (stream, continuation) = AsyncStream<[Float]>.makeStream()
     self.samples = stream
@@ -71,18 +81,25 @@ actor SpeakerDiarizer {
   }
 
   /// Download (first use, ~100 MB, cached locally) or load the diarization
-  /// models and build the manager. Progress appears as `.modelDownload`,
-  /// like the speech assets — both run during the preparing phase.
+  /// models and build one diarizer per requested source. Progress appears as
+  /// `.modelDownload`, like the speech assets — both run during the
+  /// preparing phase. `initialize(models:)` consumes its models, so each
+  /// manager loads its own copy (the download is cached after the first).
   static func prepare(
+    sources: [AudioSource],
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
-  ) async throws -> SpeakerDiarizer {
+  ) async throws -> [AudioSource: SpeakerDiarizer] {
     emit(.info("Preparing speaker-diarization models…"))
-    let models = try await DiarizerModels.downloadIfNeeded { progress in
-      emit(.modelDownload(progress: progress.fractionCompleted))
+    var diarizers: [AudioSource: SpeakerDiarizer] = [:]
+    for source in sources {
+      let models = try await DiarizerModels.downloadIfNeeded { progress in
+        emit(.modelDownload(progress: progress.fractionCompleted))
+      }
+      let manager = DiarizerManager()
+      manager.initialize(models: models)
+      diarizers[source] = SpeakerDiarizer(manager: manager, source: source, emit: emit)
     }
-    let manager = DiarizerManager()
-    manager.initialize(models: models)
-    return SpeakerDiarizer(manager: manager, emit: emit)
+    return diarizers
   }
 
   /// Returns a sink that feeds the diarizer and forwards the buffer
@@ -134,7 +151,8 @@ actor SpeakerDiarizer {
             SpeakerTurn(
               speaker: .diarized(speakerNumber(for: segment.speakerId)),
               audioStart: TimeInterval(segment.startTimeSeconds),
-              audioEnd: TimeInterval(segment.endTimeSeconds)
+              audioEnd: TimeInterval(segment.endTimeSeconds),
+              source: source
             )))
       }
     } catch {

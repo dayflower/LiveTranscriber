@@ -9,7 +9,7 @@ import Foundation
 /// engines' result-consumption tasks.
 final class ActivityMerger: @unchecked Sendable {
   private let lock = NSLock()
-  private var speaking: [SpeakerLabel: Bool] = [:]
+  private var speaking: [AudioSource: Bool] = [:]
   private var aggregate = false
   private let onChange: @Sendable (Bool) -> Void
 
@@ -17,10 +17,10 @@ final class ActivityMerger: @unchecked Sendable {
     self.onChange = onChange
   }
 
-  func update(_ label: SpeakerLabel, isSpeaking: Bool) {
+  func update(_ source: AudioSource, isSpeaking: Bool) {
     var report: Bool?
     lock.lock()
-    speaking[label] = isSpeaking
+    speaking[source] = isSpeaking
     let merged = speaking.values.contains(true)
     if merged != aggregate {
       aggregate = merged

@@ -1,4 +1,5 @@
 import Foundation
+import LiveTranscriberCore
 
 /// One finalized piece of the transcript.
 struct TranscriptSegment: Identifiable, Sendable {
@@ -15,10 +16,14 @@ struct TranscriptSegment: Identifiable, Sendable {
   /// separation is off or no attribution arrived. Mutable so diarization can
   /// label segments retroactively.
   var speaker: String?
+  /// Capture stream the segment was recognized from, while recording with
+  /// one engine per source. Scopes retroactive diarization labeling to turns
+  /// from the same source; in-memory only (not persisted).
+  let source: AudioSource?
 
   init(
     id: UUID = UUID(), text: String, date: Date, audioStart: TimeInterval?,
-    audioEnd: TimeInterval?, speaker: String? = nil
+    audioEnd: TimeInterval?, speaker: String? = nil, source: AudioSource? = nil
   ) {
     self.id = id
     self.text = text
@@ -26,5 +31,6 @@ struct TranscriptSegment: Identifiable, Sendable {
     self.audioStart = audioStart
     self.audioEnd = audioEnd
     self.speaker = speaker
+    self.source = source
   }
 }

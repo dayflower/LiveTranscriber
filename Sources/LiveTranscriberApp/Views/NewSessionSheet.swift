@@ -182,10 +182,20 @@ struct NewSessionSheet: View {
           localized:
             "Needs both the microphone and application audio; with a single source this session records without speaker labels."
         )
+    case .hybrid:
+      microphoneEnabled && appAudioEnabled
+        ? String(
+          localized:
+            "The microphone is assumed to be one person and labeled Mic; voices in the application audio are distinguished as App Speaker 1, App Speaker 2, …. Downloads a model (about 100 MB) on first use."
+        )
+        : String(
+          localized:
+            "Needs both sources: with application audio alone every voice is detected; with the microphone alone the session records without speaker labels."
+        )
     case .fluidAudio:
       String(
         localized:
-          "Labels lines Speaker 1, Speaker 2, … via on-device diarization. Downloads a model (about 100 MB) on first use."
+          "Voices are distinguished in every stream, as Mic Speaker 1, App Speaker 1, … — use this when several people share the microphone. Downloads a model (about 100 MB) on first use."
       )
     }
   }
@@ -335,8 +345,9 @@ extension SpeakerSeparationMode {
   var displayName: String {
     switch self {
     case .off: String(localized: "Off")
-    case .source: String(localized: "By audio source")
-    case .fluidAudio: String(localized: "Speaker diarization (FluidAudio)")
+    case .source: String(localized: "By audio source (Mic / App)")
+    case .hybrid: String(localized: "Mic + detected speakers in app audio")
+    case .fluidAudio: String(localized: "Detected speakers in all audio")
     }
   }
 }

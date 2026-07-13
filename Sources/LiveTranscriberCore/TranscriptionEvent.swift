@@ -24,38 +24,52 @@ public struct TranscriptResult: Sendable {
   public let audioEnd: TimeInterval?
   /// Speaker attribution, when a separation mode provides one.
   public let speaker: SpeakerLabel?
+  /// Capture stream this result was recognized from, when one engine runs
+  /// per source. Diarized turns match only against results from the same
+  /// source (each engine has its own audio timeline).
+  public let source: AudioSource?
 
   public init(
     text: String,
     isFinal: Bool,
     audioStart: TimeInterval?,
     audioEnd: TimeInterval?,
-    speaker: SpeakerLabel? = nil
+    speaker: SpeakerLabel? = nil,
+    source: AudioSource? = nil
   ) {
     self.text = text
     self.isFinal = isFinal
     self.audioStart = audioStart
     self.audioEnd = audioEnd
     self.speaker = speaker
+    self.source = source
   }
 
-  public func with(speaker: SpeakerLabel?) -> TranscriptResult {
+  public func with(speaker: SpeakerLabel?, source: AudioSource?) -> TranscriptResult {
     TranscriptResult(
-      text: text, isFinal: isFinal, audioStart: audioStart, audioEnd: audioEnd, speaker: speaker)
+      text: text, isFinal: isFinal, audioStart: audioStart, audioEnd: audioEnd,
+      speaker: speaker, source: source)
   }
 }
 
 /// A diarized stretch of speech attributed to one speaker, on the same audio
-/// timeline as `TranscriptResult.audioStart`.
+/// timeline as `TranscriptResult.audioStart` of the same source.
 public struct SpeakerTurn: Sendable {
   public let speaker: SpeakerLabel
   public let audioStart: TimeInterval
   public let audioEnd: TimeInterval
+  /// Capture stream the diarizer ran on; `nil` means unscoped (matches
+  /// transcripts from any source).
+  public let source: AudioSource?
 
-  public init(speaker: SpeakerLabel, audioStart: TimeInterval, audioEnd: TimeInterval) {
+  public init(
+    speaker: SpeakerLabel, audioStart: TimeInterval, audioEnd: TimeInterval,
+    source: AudioSource? = nil
+  ) {
     self.speaker = speaker
     self.audioStart = audioStart
     self.audioEnd = audioEnd
+    self.source = source
   }
 }
 

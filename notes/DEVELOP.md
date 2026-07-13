@@ -62,7 +62,7 @@ Two targets plus tests:
   | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
   | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
-  | `SpeakerDiarizer.swift` | FluidAudio diarization actor: taps the engine stream, emits `.speakerTurn` events |
+  | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.speakerTurn` events |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
   | `ModelManager.swift` | `AssetInventory` locale support/reservation/download |
   | `TranscriptionEvent.swift`, `CaptureConfiguration.swift` | Value types crossing the Core/App boundary |
@@ -101,27 +101,49 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 - Each capture converts buffers to the target format on its own serial queue
   and hands them to a `sink` closure — the engine input directly for a single
   source, or a mixer inlet when both sources are active.
-- **Speaker separation** (`CaptureConfiguration.speakerSeparation`) picks one
-  of three topologies:
-  - `.off` — the diagram above, unchanged.
-  - `.source` (requires both sources; degrades to `.off` otherwise) — two
-    `TranscriptionEngine`s instead of the mixer. The microphone feeds its
-    engine directly; app audio passes through a **single-inlet `AudioMixer`**
-    whose only job is silence padding, because ScreenCaptureKit delivers
-    nothing during system silence and the engine's audio timeline would fall
-    behind the wall clock. Each engine's transcripts are labeled
-    (`SpeakerLabel.microphone`/`.appAudio`); the two detectors' activity is
-    OR-merged (`SourceMergers.swift`) so silence-driven consumers keep seeing
-    one session-level signal. Segments from the two engines finalize on
-    independent cadences, so `RecordingController` insert-sorts them by date.
-  - `.fluidAudio` (any source count) — the `.off` topology plus a passthrough
-    tap on the engine sink feeding `SpeakerDiarizer`, which converts to
-    16 kHz mono Float32, accumulates 10 s chunks, runs FluidAudio, and emits
-    `.speakerTurn` events. Because the tap sits on the exact stream the
-    engine consumes, accumulated sample offsets share the transcriber's
-    `audioTimeRange` origin; the app layer matches turns to segments by time
-    overlap and retro-labels already-final segments as turns arrive.
-    `stop()` flushes the diarizer tail before finishing the event stream.
+- **Speaker separation** (`CaptureConfiguration.speakerSeparation`) — with
+  both sources active, every mode except `.off` runs the **engine-per-source
+  topology**: two `TranscriptionEngine`s instead of the mixer, so audio is
+  only ever mixed when separation is off. The microphone feeds its engine
+  directly; app audio passes through a **single-inlet `AudioMixer`** whose
+  only job is silence padding, because ScreenCaptureKit delivers nothing
+  during system silence and the engine's audio timeline would fall behind
+  the wall clock. Each engine's transcripts carry their `AudioSource`; the
+  two detectors' activity is OR-merged (`SourceMergers.swift`) so
+  silence-driven consumers keep seeing one session-level signal. Segments
+  from the two engines finalize on independent cadences, so
+  `RecordingController` insert-sorts them by date. The modes differ in how
+  segments get their speaker:
+  - `.off` — the diagram above, unchanged (single engine, mixer when both
+    sources are active).
+  - `.source` (requires both sources; degrades to `.off` otherwise) — each
+    engine stamps its transcripts (`SpeakerLabel.microphone`/`.appAudio`);
+    no diarization.
+  - `.fluidAudio` (any source count) — every capture stream gets its own
+    `SpeakerDiarizer` (never the mix — overlapping speech on a mixed stream
+    collapses into whichever voice dominates), tapping the exact stream its
+    engine consumes (post-padding for app audio), converting to 16 kHz mono
+    Float32, accumulating 10 s chunks, running FluidAudio, and emitting
+    `.speakerTurn` events. Turn offsets share that engine's `audioTimeRange`
+    origin, and turns carry their source: the app layer matches turns to
+    segments of the same source by time overlap (the two timelines have
+    independent origins) and retro-labels already-final segments as turns
+    arrive. Speaker numbers count from 1 per stream and the app layer
+    prefixes them with the segment's source ("Mic Speaker 1" /
+    "App Speaker 1"; unprefixed with a single source); segments no turn has
+    covered yet fall back to the bare source label (Mic/App) and are
+    upgraded when one arrives — by overlap, or (the diarizer misses short
+    or quiet utterances entirely) by binding to the nearest same-source
+    turn within 30 s once diarization has processed past the segment, with
+    a final pass at stop. FluidAudio's `SpeakerManager` state is
+    per-instance — a voice present on both streams (e.g. mic echo in a
+    meeting app) becomes two speakers. `stop()` flushes the diarizer tails
+    before finishing the event stream.
+  - `.hybrid` (requires both sources; app audio alone degrades to
+    `.fluidAudio`, microphone alone to `.off`) — the microphone engine
+    stamps `Mic` like `.source`; only the app stream is diarized. Fits the
+    common "me plus a meeting app" case: no diarization cost or
+    misclustering risk on the mic stream.
 - **Mixing**: the two captures run on independent clocks, and ScreenCaptureKit
   delivers nothing during system silence, so the mixer cannot wait for both
   sides. A wall-clock timer (100 ms) drains a fixed frame count from both
@@ -169,8 +191,9 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   and length check on the parsed label keeps ordinary text that resembles the
   markers from being misread. With diarization, turns can arrive after a
   segment was appended to the streaming file — those labels only reach disk
-  in the finalize rewrite, so a crash leaves recent lines speaker-less
-  (consistent with the streaming path's general fidelity).
+  in the finalize rewrite, so a crash leaves recent lines with their
+  provisional source label (or speaker-less), consistent with the streaming
+  path's general fidelity.
 - Segment wall-clock timestamps prefer `sessionStart + audioStart` (the
   `.audioTimeRange` attribute) over the finalization time — closer to when the
   words were actually spoken.
@@ -211,11 +234,18 @@ user action.
 - Ad-hoc signing vs TCC: see the bundle section above.
 - The model download for a new locale happens during session preparation and
   is reported on the event stream (`.modelDownload`). FluidAudio's
-  diarization models (~100 MB) download the same way on first `.fluidAudio`
-  session (cached under FluidAudio's default models directory).
-- Source-separation mode runs two `SpeechAnalyzer` sessions in parallel,
-  roughly doubling recognition CPU/RAM; watch thermals on long sessions.
+  diarization models (~100 MB) download the same way on the first diarizing
+  session (cached under FluidAudio's default models directory); each
+  diarizer instance loads its own copy of the models
+  (`DiarizerManager.initialize` consumes them).
+- Every dual-source separation mode runs two `SpeechAnalyzer` sessions in
+  parallel, roughly doubling recognition CPU/RAM — and `.fluidAudio` adds a
+  diarizer per stream on top; watch thermals on long sessions.
 - Diarization labels lag transcription by up to one chunk (10 s): segments
-  finalize unlabeled and are retro-labeled when the covering turn arrives. A
-  sub-3 s audio tail at stop is dropped (too short for a reliable speaker
-  embedding), so a trailing segment can stay unlabeled.
+  finalize with the provisional source label (Mic/App; none with a single
+  source) and are upgraded when the covering turn arrives. Utterances the
+  diarizer misses (short interjections, quiet speech, the sub-3 s audio
+  tail dropped at stop) bind to the nearest same-source turn within 30 s;
+  past that window they land in the stream's unknown-speaker bucket,
+  "Speaker 0". Only a stream with no turns at all keeps the provisional
+  label.
