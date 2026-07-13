@@ -358,6 +358,7 @@ struct NewSessionSheet: View {
         hardLimit: settings.hardLimitEnabled
           ? estimated.map { $0 + TimeInterval(settings.hardLimitExtraMinutes * 60) } : nil,
         autoStopSilenceSeconds: settings.effectiveAutoStopSilenceSeconds,
+        keepDisplayAwake: settings.keepDisplayAwake,
         saveToFile: saveToFile
       ))
     model.selectLiveSession()

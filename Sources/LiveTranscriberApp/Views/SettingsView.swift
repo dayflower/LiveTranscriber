@@ -135,6 +135,18 @@ private struct RecordingSettings: View {
       }
 
       Section {
+        Toggle("Keep the display awake", isOn: $settings.keepDisplayAwake)
+
+        Text(
+          "The Mac never sleeps while recording. This additionally keeps the display from turning off."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      } header: {
+        Text("Power")
+      }
+
+      Section {
         ForEach(settings.priorityApps) { app in
           HStack {
             Text(app.name)

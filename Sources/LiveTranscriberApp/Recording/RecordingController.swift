@@ -24,6 +24,9 @@ final class RecordingController {
     /// Silence needed (after the estimated duration) before auto-stop;
     /// 0 disables the silence rule.
     var autoStopSilenceSeconds: TimeInterval = 0
+    /// Also keep the display from sleeping (system sleep is always
+    /// prevented while recording).
+    var keepDisplayAwake = false
     /// Write the transcript to the save folder as it is recorded.
     var saveToFile = true
   }
@@ -100,8 +103,12 @@ final class RecordingController {
         audioLevels = [:]
         if plan.configuration.microphoneID != nil { audioLevels[.microphone] = 0 }
         if plan.configuration.appAudio != nil { audioLevels[.appAudio] = 0 }
+        var activityOptions: ProcessInfo.ActivityOptions = [
+          .userInitiated, .idleSystemSleepDisabled,
+        ]
+        if plan.keepDisplayAwake { activityOptions.insert(.idleDisplaySleepDisabled) }
         activityToken = ProcessInfo.processInfo.beginActivity(
-          options: [.userInitiated, .idleSystemSleepDisabled],
+          options: activityOptions,
           reason: "Recording a transcription session"
         )
         phase = .recording

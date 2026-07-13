@@ -99,6 +99,12 @@ final class AppSettings {
     didSet { Self.defaults.set(diarizerMinTurnSeconds, forKey: "diarizerMinTurnSeconds") }
   }
 
+  /// Also keep the display from sleeping while recording (system sleep is
+  /// always prevented during a session).
+  var keepDisplayAwake: Bool {
+    didSet { Self.defaults.set(keepDisplayAwake, forKey: "keepDisplayAwake") }
+  }
+
   /// Once the estimated duration has passed, auto-stop after
   /// `autoStopSilenceSeconds` of continuous silence.
   var autoStopSilenceEnabled: Bool {
@@ -151,6 +157,8 @@ final class AppSettings {
     periodicFinalizeSeconds = storedPeriodic.flatMap { $0 > 0 ? $0 : nil } ?? 30
 
     diarizerMinTurnSeconds = d.object(forKey: "diarizerMinTurnSeconds") as? Double ?? 1
+
+    keepDisplayAwake = d.object(forKey: "keepDisplayAwake") as? Bool ?? false
 
     autoStopSilenceEnabled = d.object(forKey: "autoStopSilenceEnabled") as? Bool ?? true
     autoStopSilenceSeconds = d.object(forKey: "autoStopSilenceSeconds") as? Double ?? 60

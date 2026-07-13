@@ -41,7 +41,9 @@ Everything runs on your Mac using Apple's on-device speech recognition
   toolbar to adjust that source's input gain (0–200%) with immediate effect;
   the setting is remembered for future sessions.
 - **Background recording**: recording continues with the window closed; the
-  menu bar item shows the state and can stop the session.
+  menu bar item shows the state and can stop the session. The Mac never goes
+  to sleep while recording; optionally the display can be kept awake too
+  (Settings → Recording → Power).
 - **Estimated duration & auto-stop**: give a session an estimated length when
   starting it, picked from presets or entered as any number of minutes via
   **Custom…**. Once it has elapsed, the recording stops automatically after a
