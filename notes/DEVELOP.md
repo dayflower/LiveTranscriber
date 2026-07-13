@@ -124,7 +124,10 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     collapses into whichever voice dominates), tapping the exact stream its
     engine consumes (post-padding for app audio), converting to 16 kHz mono
     Float32, accumulating 10 s chunks, running FluidAudio, and emitting
-    `.speakerTurn` events. Turn offsets share that engine's `audioTimeRange`
+    `.speakerTurn` events. FluidAudio drops turns shorter than its
+    `minSpeechDuration`; the threshold is a Settings value
+    (`diarizerMinTurnSeconds`, default 1 s) carried in
+    `CaptureConfiguration`. Turn offsets share that engine's `audioTimeRange`
     origin, and turns carry their source: the app layer matches turns to
     segments of the same source by time overlap (the two timelines have
     independent origins) and retro-labels already-final segments as turns

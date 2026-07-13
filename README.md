@@ -93,8 +93,10 @@ macOS attributes the permission grants to the app.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
 5. Settings (⌘,) hold the save folder, file format, timestamps, the
-   auto-stop behavior, priority applications for the application picker, and
-   the transcript font and size.
+   auto-stop behavior, the minimum speaker-turn duration for diarization
+   (shorter turns are ignored; lower it to pick up brief interjections at the
+   cost of less reliable speaker attribution), priority applications for the
+   application picker, and the transcript font and size.
 
 ## Transcript files
 

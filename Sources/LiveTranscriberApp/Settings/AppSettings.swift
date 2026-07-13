@@ -83,6 +83,12 @@ final class AppSettings {
     didSet { Self.defaults.set(periodicFinalizeSeconds, forKey: "periodicFinalizeSeconds") }
   }
 
+  /// Diarized speaker turns shorter than this are discarded. Lower values
+  /// pick up short interjections but attribute speakers less reliably.
+  var diarizerMinTurnSeconds: Double {
+    didSet { Self.defaults.set(diarizerMinTurnSeconds, forKey: "diarizerMinTurnSeconds") }
+  }
+
   /// Once the estimated duration has passed, auto-stop after
   /// `autoStopSilenceSeconds` of continuous silence.
   var autoStopSilenceEnabled: Bool {
@@ -131,6 +137,8 @@ final class AppSettings {
     periodicFinalizeEnabled =
       d.object(forKey: "periodicFinalizeEnabled") as? Bool ?? storedPeriodic.map { $0 > 0 } ?? true
     periodicFinalizeSeconds = storedPeriodic.flatMap { $0 > 0 ? $0 : nil } ?? 30
+
+    diarizerMinTurnSeconds = d.object(forKey: "diarizerMinTurnSeconds") as? Double ?? 1
 
     autoStopSilenceEnabled = d.object(forKey: "autoStopSilenceEnabled") as? Bool ?? true
     autoStopSilenceSeconds = d.object(forKey: "autoStopSilenceSeconds") as? Double ?? 60

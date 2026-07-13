@@ -87,15 +87,18 @@ actor SpeakerDiarizer {
   /// manager loads its own copy (the download is cached after the first).
   static func prepare(
     sources: [AudioSource],
+    minTurnSeconds: TimeInterval,
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
   ) async throws -> [AudioSource: SpeakerDiarizer] {
     emit(.info("Preparing speaker-diarization models…"))
+    var config = DiarizerConfig.default
+    config.minSpeechDuration = Float(minTurnSeconds)
     var diarizers: [AudioSource: SpeakerDiarizer] = [:]
     for source in sources {
       let models = try await DiarizerModels.downloadIfNeeded { progress in
         emit(.modelDownload(progress: progress.fractionCompleted))
       }
-      let manager = DiarizerManager()
+      let manager = DiarizerManager(config: config)
       manager.initialize(models: models)
       diarizers[source] = SpeakerDiarizer(manager: manager, source: source, emit: emit)
     }

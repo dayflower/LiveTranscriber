@@ -64,6 +64,11 @@ public struct CaptureConfiguration: Sendable {
   /// of speech activity (0 = off).
   public var periodicFinalizeSeconds: TimeInterval
 
+  /// Diarized speaker turns shorter than this are discarded (FluidAudio's
+  /// `minSpeechDuration`). Lower values pick up short interjections at the
+  /// cost of less reliable speaker attribution.
+  public var diarizerMinTurnSeconds: TimeInterval
+
   /// ScreenCaptureKit capture frame rate. Audio arrival cadence is driven by
   /// the audio clock, but a higher rate can slightly lower latency.
   public var captureFrameRate: Int
@@ -78,6 +83,7 @@ public struct CaptureConfiguration: Sendable {
     enableSpeechDetector: Bool = true,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
+    diarizerMinTurnSeconds: TimeInterval = 1,
     captureFrameRate: Int = 10
   ) {
     self.localeIdentifier = localeIdentifier
@@ -89,6 +95,7 @@ public struct CaptureConfiguration: Sendable {
     self.enableSpeechDetector = enableSpeechDetector
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
+    self.diarizerMinTurnSeconds = diarizerMinTurnSeconds
     self.captureFrameRate = captureFrameRate
   }
 

@@ -327,7 +327,8 @@ struct NewSessionSheet: View {
       microphoneGain: Float(settings.microphoneGain),
       appAudioGain: Float(settings.appAudioGain),
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
-      periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds
+      periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds,
+      diarizerMinTurnSeconds: settings.diarizerMinTurnSeconds
     )
 
     var sources: [String] = []

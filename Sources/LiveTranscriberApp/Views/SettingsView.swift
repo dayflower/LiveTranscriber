@@ -110,6 +110,31 @@ private struct RecordingSettings: View {
       }
 
       Section {
+        LabeledContent("Minimum turn duration") {
+          Slider(value: $settings.diarizerMinTurnSeconds, in: 0.2...3, step: 0.1) {
+            EmptyView()
+          } minimumValueLabel: {
+            Text(verbatim: "0.2")
+          } maximumValueLabel: {
+            Text(verbatim: "3")
+          }
+          .controlSize(.small)
+          .frame(width: 180)
+          Text(secondsLabel(settings.diarizerMinTurnSeconds))
+            .monospacedDigit()
+            .frame(width: 40, alignment: .trailing)
+        }
+
+        Text(
+          "Detected speaker turns shorter than this are ignored. Lower values pick up short interjections but make speaker attribution less reliable."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      } header: {
+        Text("Speaker detection")
+      }
+
+      Section {
         ForEach(settings.priorityApps) { app in
           HStack {
             Text(app.name)

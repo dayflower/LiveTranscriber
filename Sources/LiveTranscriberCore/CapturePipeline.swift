@@ -135,7 +135,9 @@ public actor CapturePipeline {
     let sources = diarizedSources
     if !sources.isEmpty {
       diarizers = try await SpeakerDiarizer.prepare(
-        sources: sources, emit: { continuation.yield($0) })
+        sources: sources,
+        minTurnSeconds: configuration.diarizerMinTurnSeconds,
+        emit: { continuation.yield($0) })
     }
     return locale
   }
