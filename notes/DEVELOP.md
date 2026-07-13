@@ -209,7 +209,8 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 ## Auto-stop
 
 `AutoStopMonitor` ticks once per second while recording and reads the session
-object each tick (so mid-session edits of the estimate apply immediately):
+object each tick (so cancelling the auto-stop mid-session applies
+immediately; the estimate itself is only set when the session starts):
 
 1. estimated duration elapsed **and** silence (from `SpeechDetector` via
    `SilenceTracker`) ≥ configured threshold → stop;
@@ -217,7 +218,8 @@ object each tick (so mid-session edits of the estimate apply immediately):
 
 Both rules have independent on/off toggles in Settings: disabling the silence
 rule passes 0 seconds to the monitor, disabling the hard limit leaves
-`session.hardLimit` nil (also when the estimate is edited mid-session).
+`session.hardLimit` nil. Cancelling the auto-stop from the toolbar clears
+both `estimatedDuration` and `hardLimit`.
 
 ## Calendar matching
 

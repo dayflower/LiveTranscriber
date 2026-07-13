@@ -8,7 +8,7 @@ import Foundation
 /// 2. Hard limit elapsed → stop unconditionally, even during speech.
 ///
 /// The session's `estimatedDuration` / `hardLimit` are read on every tick, so
-/// edits made while recording take effect immediately.
+/// cancelling the auto-stop while recording takes effect immediately.
 @MainActor
 final class AutoStopMonitor {
   enum Reason {

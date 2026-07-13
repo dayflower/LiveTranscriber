@@ -37,7 +37,7 @@ struct RecordingToolbar: ToolbarContent {
           Text(session.startedAt, style: .timer)
             .font(.body.monospacedDigit())
             .foregroundStyle(.secondary)
-          EstimatedDurationMenu(session: session)
+          AutoStopIndicator(session: session)
         }
         if let level = model.recording.audioLevels[.microphone] {
           LevelMeter(
@@ -69,65 +69,24 @@ struct RecordingToolbar: ToolbarContent {
   }
 }
 
-/// Estimated-duration editor available while recording; the auto-stop monitor
-/// picks changes up on its next tick.
-private struct EstimatedDurationMenu: View {
-  @Bindable var session: TranscriptSession
-  @Environment(AppModel.self) private var model
-  @State private var showingCustomDuration = false
-
-  private static let choices = [0, 15, 30, 60, 90, 120]
+/// Shows the estimated duration set when the session started; hidden when
+/// there is none. The only mid-session edit is cancelling the auto-stop, which
+/// the monitor picks up on its next tick.
+private struct AutoStopIndicator: View {
+  let session: TranscriptSession
 
   var body: some View {
-    Menu {
-      ForEach(Self.choices, id: \.self) { minutes in
-        Button {
-          apply(minutes: minutes)
-        } label: {
-          if isCurrent(minutes: minutes) {
-            Label(label(minutes: minutes), systemImage: "checkmark")
-          } else {
-            Text(label(minutes: minutes))
-          }
+    if let estimated = session.estimatedDuration {
+      Menu {
+        Button("Cancel Auto-Stop") {
+          session.estimatedDuration = nil
+          session.hardLimit = nil
         }
+      } label: {
+        Label("\(Int(estimated / 60)) min", systemImage: "timer")
       }
-      Divider()
-      Button("Custom…") { showingCustomDuration = true }
-    } label: {
-      Label(currentLabel, systemImage: "timer")
+      .help("Estimated session duration (drives automatic stop)")
     }
-    .help("Estimated session duration (drives automatic stop)")
-    .popover(isPresented: $showingCustomDuration, arrowEdge: .bottom) {
-      CustomDurationEntry(minutes: currentMinutes ?? 30) { minutes in
-        apply(minutes: minutes)
-        showingCustomDuration = false
-      }
-    }
-  }
-
-  private var currentMinutes: Int? {
-    session.estimatedDuration.map { Int($0 / 60) }
-  }
-
-  private func label(minutes: Int) -> String {
-    minutes == 0 ? String(localized: "No estimate") : "\(minutes) min"
-  }
-
-  private var currentLabel: String {
-    guard let estimated = session.estimatedDuration else { return String(localized: "No estimate") }
-    return "\(Int(estimated / 60)) min"
-  }
-
-  private func isCurrent(minutes: Int) -> Bool {
-    session.estimatedDuration == (minutes == 0 ? nil : TimeInterval(minutes * 60))
-  }
-
-  private func apply(minutes: Int) {
-    let estimated: TimeInterval? = minutes > 0 ? TimeInterval(minutes * 60) : nil
-    session.estimatedDuration = estimated
-    session.hardLimit =
-      model.settings.hardLimitEnabled
-      ? estimated.map { $0 + TimeInterval(model.settings.hardLimitExtraMinutes * 60) } : nil
   }
 }
 

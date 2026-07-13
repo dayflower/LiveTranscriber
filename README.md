@@ -42,12 +42,12 @@ Everything runs on your Mac using Apple's on-device speech recognition
   the setting is remembered for future sessions.
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session.
-- **Estimated duration & auto-stop**: give a session an estimated length
-  (before or during recording), picked from presets or entered as any number
-  of minutes via **Custom…**. Once it has elapsed, the recording stops
-  automatically after a stretch of silence; a hard limit (estimate + margin)
-  stops it even during speech. Each rule can be switched off independently in
-  Settings.
+- **Estimated duration & auto-stop**: give a session an estimated length when
+  starting it, picked from presets or entered as any number of minutes via
+  **Custom…**. Once it has elapsed, the recording stops automatically after a
+  stretch of silence; a hard limit (estimate + margin) stops it even during
+  speech. The toolbar shows the estimate while recording and offers to cancel
+  the auto-stop. Each rule can be switched off independently in Settings.
 - **Calendar integration**: apply a calendar event's title and duration to a
   session with one click; the name gets the event's start time as a
   `YYYYMMDD HHMM` prefix, and the estimated duration is the time until the
