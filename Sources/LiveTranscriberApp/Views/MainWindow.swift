@@ -9,33 +9,35 @@ struct MainWindow: View {
       SessionListView()
         .navigationSplitViewColumnWidth(min: 180, ideal: 230)
     } detail: {
-      if let session = model.displayedSession {
-        TranscriptView(session: session)
-      } else {
-        ContentUnavailableView(
-          "No Session",
-          systemImage: "waveform",
-          description: Text("Start recording to see the live transcript here.")
-        )
+      Group {
+        if let session = model.displayedSession {
+          TranscriptView(session: session)
+        } else {
+          ContentUnavailableView(
+            "No Session",
+            systemImage: "waveform",
+            description: Text("Start recording to see the live transcript here.")
+          )
+        }
+      }
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) {
+          if let message = model.recording.lastError {
+            Banner(message: message, icon: "exclamationmark.triangle.fill", tint: .yellow) {
+              model.recording.lastError = nil
+            }
+          }
+          if let message = model.recording.infoMessage {
+            Banner(message: message, icon: "info.circle.fill", tint: .blue) {
+              model.recording.infoMessage = nil
+            }
+          }
+        }
       }
     }
     .toolbar { RecordingToolbar() }
     .sheet(isPresented: $model.showingNewSessionSheet) {
       NewSessionSheet()
-    }
-    .safeAreaInset(edge: .top, spacing: 0) {
-      VStack(spacing: 0) {
-        if let message = model.recording.lastError {
-          Banner(message: message, icon: "exclamationmark.triangle.fill", tint: .yellow) {
-            model.recording.lastError = nil
-          }
-        }
-        if let message = model.recording.infoMessage {
-          Banner(message: message, icon: "info.circle.fill", tint: .blue) {
-            model.recording.infoMessage = nil
-          }
-        }
-      }
     }
     .frame(minWidth: 640, minHeight: 400)
   }
@@ -65,5 +67,6 @@ private struct Banner: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
     .background(tint.opacity(0.15))
+    .background(.bar)
   }
 }
