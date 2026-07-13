@@ -23,9 +23,11 @@ struct NewSessionSheet: View {
   @State private var appListError: String?
   @State private var loadingApps = false
   @State private var showingCalendarSuggestions = false
+  @State private var showingCustomDuration = false
 
   private static let systemAudioTag = "__system_audio__"
-  private static let estimatedChoices = [0, 15, 30, 45, 60, 90, 120]
+  private static let estimatedChoices = [0, 15, 30, 60, 90, 120]
+  private static let customDurationTag = -1
 
   var body: some View {
     VStack(spacing: 0) {
@@ -61,10 +63,18 @@ struct NewSessionSheet: View {
           "Name", text: $sessionName, prompt: Text(TranscriptSession.defaultName(for: .now))
         )
 
-        Picker("Estimated duration", selection: $estimatedMinutes) {
+        Picker("Estimated duration", selection: durationSelection) {
           ForEach(durationChoices, id: \.self) { minutes in
             Text(minutes == 0 ? String(localized: "None") : "\(minutes) min")
               .tag(minutes)
+          }
+          Divider()
+          Text("Custom…").tag(Self.customDurationTag)
+        }
+        .popover(isPresented: $showingCustomDuration, arrowEdge: .bottom) {
+          CustomDurationEntry(minutes: estimatedMinutes > 0 ? estimatedMinutes : 30) { minutes in
+            estimatedMinutes = minutes
+            showingCustomDuration = false
           }
         }
 
@@ -220,12 +230,25 @@ struct NewSessionSheet: View {
       || (appAudioEnabled && !loadingApps && appListError == nil)
   }
 
-  /// Standard choices plus whatever a calendar event set, so the picker can
-  /// always display the current value.
+  /// Standard choices plus whatever a calendar event or custom entry set, so
+  /// the picker can always display the current value.
   private var durationChoices: [Int] {
     var choices = Set(Self.estimatedChoices)
     choices.insert(estimatedMinutes)
     return choices.sorted()
+  }
+
+  /// Selecting "Custom…" opens the entry popover instead of becoming a value.
+  private var durationSelection: Binding<Int> {
+    Binding {
+      estimatedMinutes
+    } set: { newValue in
+      if newValue == Self.customDurationTag {
+        showingCustomDuration = true
+      } else {
+        estimatedMinutes = newValue
+      }
+    }
   }
 
   /// Applying an event: title → session name; time to the event's end →

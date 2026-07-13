@@ -74,8 +74,9 @@ struct RecordingToolbar: ToolbarContent {
 private struct EstimatedDurationMenu: View {
   @Bindable var session: TranscriptSession
   @Environment(AppModel.self) private var model
+  @State private var showingCustomDuration = false
 
-  private static let choices = [0, 15, 30, 45, 60, 90, 120]
+  private static let choices = [0, 15, 30, 60, 90, 120]
 
   var body: some View {
     Menu {
@@ -90,10 +91,22 @@ private struct EstimatedDurationMenu: View {
           }
         }
       }
+      Divider()
+      Button("Custom…") { showingCustomDuration = true }
     } label: {
       Label(currentLabel, systemImage: "timer")
     }
     .help("Estimated session duration (drives automatic stop)")
+    .popover(isPresented: $showingCustomDuration, arrowEdge: .bottom) {
+      CustomDurationEntry(minutes: currentMinutes ?? 30) { minutes in
+        apply(minutes: minutes)
+        showingCustomDuration = false
+      }
+    }
+  }
+
+  private var currentMinutes: Int? {
+    session.estimatedDuration.map { Int($0 / 60) }
   }
 
   private func label(minutes: Int) -> String {

@@ -43,7 +43,8 @@ Everything runs on your Mac using Apple's on-device speech recognition
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session.
 - **Estimated duration & auto-stop**: give a session an estimated length
-  (before or during recording). Once it has elapsed, the recording stops
+  (before or during recording), picked from presets or entered as any number
+  of minutes via **Custom…**. Once it has elapsed, the recording stops
   automatically after a stretch of silence; a hard limit (estimate + margin)
   stops it even during speech. Each rule can be switched off independently in
   Settings.
