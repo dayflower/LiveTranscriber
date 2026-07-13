@@ -44,7 +44,7 @@ struct NewSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 720, height: 440)
+    .frame(width: 720, height: 480)
     .task { await loadChoices() }
     .onChange(of: appAudioEnabled) {
       if appAudioEnabled {
@@ -102,6 +102,7 @@ struct NewSessionSheet: View {
       }
     }
     .formStyle(.grouped)
+    .scrollDisabled(true)
   }
 
   /// Right column: what gets recorded and in which language.
@@ -169,6 +170,7 @@ struct NewSessionSheet: View {
       }
     }
     .formStyle(.grouped)
+    .scrollDisabled(true)
   }
 
   private var speakerSeparationNote: String? {
