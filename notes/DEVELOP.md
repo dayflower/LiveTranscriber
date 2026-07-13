@@ -60,6 +60,7 @@ Two targets plus tests:
   | `MicrophoneCapture.swift` | AVCaptureSession microphone capture + device listing |
   | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream (single-inlet use doubles as a silence padder) |
   | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
+  | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
   | `SpeakerDiarizer.swift` | FluidAudio diarization actor: taps the engine stream, emits `.speakerTurn` events |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
@@ -129,6 +130,11 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   (~400 ms) to bound drift-induced latency. Per-source level meters tap each
   inlet's silence-padded per-tick contribution inside the mixer, so an idle
   source meters as zero rather than freezing at its last level.
+- **Input gain**: each source's sink is wrapped in an `AudioGain` tap
+  (`CapturePipeline.setGain(_:for:)`, driven live from the toolbar meters)
+  that scales samples in place before the level meter and the mixer/engine,
+  so meters show post-gain levels — what the recognizer actually hears.
+  Gains are seeded from `CaptureConfiguration` (persisted in `AppSettings`).
 - **No buffer timestamps**: `AnalyzerInput` is fed without `bufferStartTime`.
   Sample-rate conversion rounds buffer lengths, so source timestamps would
   overlap ("timestamp overlaps or precedes" errors); the analyzer sequences

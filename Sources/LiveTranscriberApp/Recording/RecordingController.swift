@@ -62,6 +62,11 @@ final class RecordingController {
 
   var isBusy: Bool { phase != .idle }
 
+  /// Live-adjust one source's input gain; no-op when nothing is recording.
+  func setGain(_ value: Float, for source: AudioSource) {
+    pipeline?.setGain(value, for: source)
+  }
+
   func start(plan: SessionPlan) {
     guard phase == .idle else { return }
     phase = .preparing

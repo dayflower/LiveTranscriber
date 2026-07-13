@@ -33,6 +33,9 @@ Everything runs on your Mac using Apple's on-device speech recognition
   selected sidebar row, the context menu, or the Delete key — after
   confirmation, saved transcripts move to the Trash (recoverable) and
   memory-only sessions are discarded.
+- **Per-source input gain**: while recording, click a level meter in the
+  toolbar to adjust that source's input gain (0–200%) with immediate effect;
+  the setting is remembered for future sessions.
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session.
 - **Estimated duration & auto-stop**: give a session an estimated length

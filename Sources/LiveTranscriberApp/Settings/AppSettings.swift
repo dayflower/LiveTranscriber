@@ -55,6 +55,16 @@ final class AppSettings {
     }
   }
 
+  /// Linear input gain (1 = unity) applied to each capture source; adjusted
+  /// from the toolbar level meters while recording.
+  var microphoneGain: Double {
+    didSet { Self.defaults.set(microphoneGain, forKey: "microphoneGain") }
+  }
+
+  var appAudioGain: Double {
+    didSet { Self.defaults.set(appAudioGain, forKey: "appAudioGain") }
+  }
+
   /// Force-finalize after `silenceFinalizeSeconds` of detected silence.
   var silenceFinalizeEnabled: Bool {
     didSet { Self.defaults.set(silenceFinalizeEnabled, forKey: "silenceFinalizeEnabled") }
@@ -106,6 +116,9 @@ final class AppSettings {
       (d.data(forKey: "priorityApps")
       .flatMap { try? JSONDecoder().decode([PriorityApp].self, from: $0) } ?? [])
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+    microphoneGain = d.object(forKey: "microphoneGain") as? Double ?? 1
+    appAudioGain = d.object(forKey: "appAudioGain") as? Double ?? 1
 
     // Legacy convention stored 0 seconds for "off"; migrate that to the
     // explicit toggles and keep the seconds at their defaults.

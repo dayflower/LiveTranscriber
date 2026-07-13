@@ -38,6 +38,11 @@ public struct CaptureConfiguration: Sendable {
   /// Speaker attribution mode for this session.
   public var speakerSeparation: SpeakerSeparationMode
 
+  /// Initial linear input gain per source (1 = unity). Adjustable while
+  /// recording via `CapturePipeline.setGain(_:for:)`.
+  public var microphoneGain: Float
+  public var appAudioGain: Float
+
   /// Run `SpeechDetector` alongside the transcriber to obtain
   /// speech-presence events (used for silence-driven finalization and
   /// auto-stop).
@@ -60,6 +65,8 @@ public struct CaptureConfiguration: Sendable {
     microphoneID: String? = nil,
     appAudio: AppAudioSource? = nil,
     speakerSeparation: SpeakerSeparationMode = .off,
+    microphoneGain: Float = 1,
+    appAudioGain: Float = 1,
     enableSpeechDetector: Bool = true,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
@@ -69,6 +76,8 @@ public struct CaptureConfiguration: Sendable {
     self.microphoneID = microphoneID
     self.appAudio = appAudio
     self.speakerSeparation = speakerSeparation
+    self.microphoneGain = microphoneGain
+    self.appAudioGain = appAudioGain
     self.enableSpeechDetector = enableSpeechDetector
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds

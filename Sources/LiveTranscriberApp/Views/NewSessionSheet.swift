@@ -286,6 +286,8 @@ struct NewSessionSheet: View {
       microphoneID: microphoneEnabled && !microphoneID.isEmpty ? microphoneID : nil,
       appAudio: appAudioSource,
       speakerSeparation: speakerSeparation,
+      microphoneGain: Float(settings.microphoneGain),
+      appAudioGain: Float(settings.appAudioGain),
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds
     )

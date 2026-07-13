@@ -30,6 +30,11 @@ public actor CapturePipeline {
 
   private let configuration: CaptureConfiguration
   private let eventContinuation: AsyncStream<TranscriptionEvent>.Continuation
+  /// Per-source gain stages, applied before metering so the level meters
+  /// reflect what the recognizer hears. `nonisolated` so the UI can adjust
+  /// them synchronously while audio flows.
+  private nonisolated let microphoneGain: AudioGain
+  private nonisolated let appAudioGain: AudioGain
   private var engines: [(label: SpeakerLabel?, engine: TranscriptionEngine)] = []
   private var microphone: MicrophoneCapture?
   private var appAudio: AppAudioCapture?
@@ -49,7 +54,17 @@ public actor CapturePipeline {
 
   public init(configuration: CaptureConfiguration) {
     self.configuration = configuration
+    self.microphoneGain = AudioGain(configuration.microphoneGain)
+    self.appAudioGain = AudioGain(configuration.appAudioGain)
     (self.events, self.eventContinuation) = AsyncStream<TranscriptionEvent>.makeStream()
+  }
+
+  /// Adjust one source's input gain (1 = unity) while audio flows.
+  public nonisolated func setGain(_ value: Float, for source: AudioSource) {
+    switch source {
+    case .microphone: microphoneGain.set(value)
+    case .appAudio: appAudioGain.set(value)
+    }
   }
 
   /// Resolve the locale, download model assets if needed (progress appears
@@ -152,14 +167,14 @@ public actor CapturePipeline {
 
         switch label {
         case .microphone:
-          microphoneSink = engineSink
+          microphoneSink = microphoneGain.tap(engineSink)
           microphoneCaptureFormat = entry.engine.audioFormat
         case .appAudio:
           let padder = AudioMixer(
             outputFormat: entry.engine.audioFormat, sink: engineSink, onError: onError)
           mixers.append(padder)
           let inlet = padder.appInlet
-          appSink = { inlet.feed($0) }
+          appSink = appAudioGain.tap { inlet.feed($0) }
           appCaptureFormat = padder.workingFormat
           padder.start()
         case .diarized:
@@ -202,8 +217,8 @@ public actor CapturePipeline {
         mixers.append(mixer)
         let appInlet = mixer.appInlet
         let microphoneInlet = mixer.microphoneInlet
-        appSink = { appInlet.feed($0) }
-        microphoneSink = { microphoneInlet.feed($0) }
+        appSink = appAudioGain.tap { appInlet.feed($0) }
+        microphoneSink = microphoneGain.tap { microphoneInlet.feed($0) }
         appCaptureFormat = mixer.workingFormat
         microphoneCaptureFormat = mixer.workingFormat
         mixer.start()
@@ -214,8 +229,8 @@ public actor CapturePipeline {
         }
         levelMeters.append(meter)
         let engineSink = meter.tap(engineFeed)
-        appSink = engineSink
-        microphoneSink = engineSink
+        appSink = appAudioGain.tap(engineSink)
+        microphoneSink = microphoneGain.tap(engineSink)
         appCaptureFormat = engine.audioFormat
         microphoneCaptureFormat = engine.audioFormat
       }
