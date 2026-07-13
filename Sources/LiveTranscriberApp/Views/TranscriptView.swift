@@ -58,7 +58,11 @@ struct TranscriptView: View {
   private let bottomAnchorID = "transcript-bottom"
 
   private var subtitle: String {
-    var parts = [session.sourceDescription, session.localeIdentifier]
+    var parts = [
+      session.startedAt.formatted(.dateTime.month().day().hour().minute()),
+      session.sourceDescription,
+      session.localeIdentifier,
+    ]
     if session.isRecording {
       parts.append(String(localized: "Recording"))
     } else if session.fileURL == nil {
