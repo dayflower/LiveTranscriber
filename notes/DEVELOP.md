@@ -151,7 +151,11 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     upgraded when coverage arrives — by overlap, or (the diarizer misses
     short or quiet utterances entirely) by binding to the nearest diarized
     segment within 30 s once the frontier has passed the transcript, with
-    a final pass at stop. A finalized transcript that spans a speaker
+    a final pass at stop. The in-progress (volatile) line shows the
+    diarizer's live attribution too (`SpeakerAssigner.liveSpeaker`:
+    overlap-only against finalized + open segments, no fallback);
+    `VolatileText` is keyed per engine separately from the displayed label
+    so the line stays in place while the label refines. A finalized transcript that spans a speaker
     change is split at the boundary: final results carry per-run
     `audioTimeRange` timings (per character for Japanese), each run binds
     to its longest-overlap diarized segment, and once the frontier passes
@@ -214,7 +218,7 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   YAML, a bold `**Mic:**` marker in Markdown, and an IRC-style `<Mic>` marker
   in plain text. Readers fall back to a `nil` speaker for pre-feature files; a charset
   and length check on the parsed label keeps ordinary text that resembles the
-  markers from being misread. With diarization, turns can arrive after a
+  markers from being misread. With diarization, coverage can arrive after a
   segment was appended to the streaming file — those labels only reach disk
   in the finalize rewrite, so a crash leaves recent lines with their
   provisional source label (or speaker-less), consistent with the streaming

@@ -24,7 +24,9 @@ Everything runs on your Mac using Apple's on-device speech recognition
   Diarization always runs on each capture stream separately, never on the
   mic+app mix (where overlapping speech would collapse into one speaker); a
   hybrid mode labels microphone lines `Mic` and diarizes only the
-  application audio. When a speaker change lands inside one finalized
+  application audio. The in-progress line already shows the current
+  speaker while the words are being written. When a speaker change lands
+  inside one finalized
   entry, the entry is split at the change so each part carries its own
   speaker (labels can rearrange for a few seconds after the text appears —
   diarization runs slightly behind transcription). The diarization model is

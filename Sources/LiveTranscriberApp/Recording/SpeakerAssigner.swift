@@ -35,30 +35,48 @@ enum SpeakerAssigner {
     let segments = snapshot.finalized + snapshot.open
     guard !segments.isEmpty else { return nil }
 
-    var overlaps: [SpeakerLabel: TimeInterval] = [:]
+    if let winner = overlapWinner(start: start, end: end, in: segments) { return winner }
+    guard sessionEnded || snapshot.frontier >= end else { return nil }
+
     var nearest: (label: SpeakerLabel, gap: TimeInterval)?
+    for segment in segments {
+      let gap = max(segment.audioStart - end, start - segment.audioEnd)
+      let closer = nearest.map {
+        gap < $0.gap || (gap == $0.gap && number(of: segment.speaker) < number(of: $0.label))
+      }
+      if gap <= Self.fallbackWindow, closer ?? true {
+        nearest = (segment.speaker, gap)
+      }
+    }
+    return nearest?.label ?? .diarized(0)
+  }
+
+  /// Best current label for an in-progress (volatile) stretch: pure overlap,
+  /// no frontier wait and no fallback — a live line nothing covers yet keeps
+  /// its provisional source label instead of guessing.
+  static func liveSpeaker(
+    audioStart: TimeInterval?, audioEnd: TimeInterval?, snapshot: DiarizationSnapshot
+  ) -> SpeakerLabel? {
+    guard let start = audioStart, let end = audioEnd, end > start else { return nil }
+    return overlapWinner(start: start, end: end, in: snapshot.finalized + snapshot.open)
+  }
+
+  /// The speaker whose segments overlap `[start, end]` the longest; ties
+  /// resolve to the lowest speaker number for determinism.
+  private static func overlapWinner(
+    start: TimeInterval, end: TimeInterval, in segments: [DiarizedSegment]
+  ) -> SpeakerLabel? {
+    var overlaps: [SpeakerLabel: TimeInterval] = [:]
     for segment in segments {
       let overlap = min(end, segment.audioEnd) - max(start, segment.audioStart)
       if overlap > 0 {
         overlaps[segment.speaker, default: 0] += overlap
-      } else {
-        let gap = max(segment.audioStart - end, start - segment.audioEnd)
-        let closer = nearest.map {
-          gap < $0.gap || (gap == $0.gap && number(of: segment.speaker) < number(of: $0.label))
-        }
-        if gap <= Self.fallbackWindow, closer ?? true {
-          nearest = (segment.speaker, gap)
-        }
       }
     }
-
-    let overlapping = overlaps.min { lhs, rhs in
+    return overlaps.min { lhs, rhs in
       if lhs.value != rhs.value { return lhs.value > rhs.value }
       return number(of: lhs.key) < number(of: rhs.key)
     }?.key
-    if let overlapping { return overlapping }
-    guard sessionEnded || snapshot.frontier >= end else { return nil }
-    return nearest?.label ?? .diarized(0)
   }
 
   /// One stretch of a segment attributed to a single speaker, produced by

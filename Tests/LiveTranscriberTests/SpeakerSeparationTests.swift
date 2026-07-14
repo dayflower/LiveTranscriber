@@ -160,6 +160,27 @@ struct SpeakerSeparationTests {
     #expect(SpeakerAssigner.speaker(audioStart: 0, audioEnd: 5, snapshot: state) == .diarized(1))
   }
 
+  @Test
+  func liveSpeakerUsesOverlapOnlyWithoutFallback() {
+    // The open segment covers the in-progress line.
+    let mid = snapshot(frontier: 3, [], open: [seg(1, 0, 3.5)])
+    #expect(SpeakerAssigner.liveSpeaker(audioStart: 1, audioEnd: 4, snapshot: mid) == .diarized(1))
+    // Nothing covers it yet: no nearest fallback, no Speaker 0 — the line
+    // keeps its provisional source label.
+    let far = snapshot(frontier: 10, [seg(1, 0, 2)])
+    #expect(SpeakerAssigner.liveSpeaker(audioStart: 5, audioEnd: 7, snapshot: far) == nil)
+    // Missing offsets cannot be matched.
+    #expect(SpeakerAssigner.liveSpeaker(audioStart: nil, audioEnd: 4, snapshot: mid) == nil)
+  }
+
+  @Test
+  func liveSpeakerFollowsTheLongestOverlap() {
+    // Speaker change mid-line: the label follows whoever covers more of it.
+    let state = snapshot(frontier: 5, [seg(1, 0, 2)], open: [seg(2, 2, 6)])
+    #expect(
+      SpeakerAssigner.liveSpeaker(audioStart: 1, audioEnd: 6, snapshot: state) == .diarized(2))
+  }
+
   // MARK: - Segment splitting at speaker changes
 
   private func run(_ text: String, _ start: TimeInterval?, _ end: TimeInterval?)

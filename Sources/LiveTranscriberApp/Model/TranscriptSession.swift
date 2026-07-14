@@ -2,11 +2,17 @@ import Foundation
 import Observation
 
 /// One in-progress (volatile) recognition text. With speaker separation two
-/// recognizers produce independent volatiles, keyed by speaker label.
+/// recognizers produce independent volatiles, keyed per engine.
 struct VolatileText: Identifiable, Equatable {
-  let speaker: String?
+  /// Stable per-engine identity: the stream's provisional label (Mic/App;
+  /// `nil` with a single unlabeled engine). Keeps the line in place while
+  /// the displayed speaker refines.
+  let key: String?
+  /// Displayed label: the live diarized attribution when one covers the
+  /// in-progress audio, else the key.
+  var speaker: String?
   var text: String
-  var id: String { speaker ?? "" }
+  var id: String { key ?? "" }
 }
 
 /// A transcription session: the one currently recording, or a completed one

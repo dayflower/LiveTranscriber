@@ -207,12 +207,12 @@ final class RecordingController {
   private func applyTranscript(_ result: TranscriptResult) {
     guard let session = liveSession else { return }
     // Volatiles are keyed per engine: by the stamped speaker label, or by
-    // the source when the diarizer attributes segments instead (diarization
-    // lags, so live text provisionally shows Mic/App). Diarized attribution
-    // is resolved for finalized segments (turns arriving later retro-label).
+    // the source when the diarizer attributes segments instead. The key
+    // holds the line in place while the displayed speaker follows the
+    // diarizer's live (open-segment) attribution.
     let volatileKey = Self.displayLabel(for: result.speaker ?? Self.label(for: result.source))
     if result.isFinal {
-      session.volatiles.removeAll { $0.speaker == volatileKey }
+      session.volatiles.removeAll { $0.key == volatileKey }
       let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { return }
       // Stamped label, else diarized attribution, else the bare source as a
@@ -251,10 +251,25 @@ final class RecordingController {
       // rewrites it).
       Self.insertSorted(segment, into: &session.segments)
       onSegmentFinalized?(session, segment)
-    } else if let index = session.volatiles.firstIndex(where: { $0.speaker == volatileKey }) {
-      session.volatiles[index].text = result.text
     } else {
-      session.volatiles.append(VolatileText(speaker: volatileKey, text: result.text))
+      // Live diarized attribution for the in-progress line. Streaming
+      // diarization runs close enough behind transcription that the open
+      // segment usually covers the volatile's audio; nothing covering it
+      // yet keeps the provisional source label.
+      var display = volatileKey
+      if result.speaker == nil, let snapshot = snapshot(for: result.source),
+        let live = SpeakerAssigner.liveSpeaker(
+          audioStart: result.audioStart, audioEnd: result.audioEnd, snapshot: snapshot)
+      {
+        display = Self.displayLabel(for: live, source: result.source)
+      }
+      if let index = session.volatiles.firstIndex(where: { $0.key == volatileKey }) {
+        session.volatiles[index].text = result.text
+        session.volatiles[index].speaker = display
+      } else {
+        session.volatiles.append(
+          VolatileText(key: volatileKey, speaker: display, text: result.text))
+      }
     }
   }
 
