@@ -42,23 +42,7 @@ final class AudioLevelMeter: @unchecked Sendable {
   }
 
   private func measure(_ buffer: AVAudioPCMBuffer) {
-    let frames = Int(buffer.frameLength)
-    guard frames > 0 else { return }
-
-    var squares: Double = 0
-    if let floatData = buffer.floatChannelData?[0] {
-      for index in 0..<frames {
-        let value = Double(floatData[index])
-        squares += value * value
-      }
-    } else if let intData = buffer.int16ChannelData?[0] {
-      for index in 0..<frames {
-        let value = Double(intData[index]) / Double(Int16.max)
-        squares += value * value
-      }
-    } else {
-      return
-    }
+    guard let (squares, frames) = AudioBufferRMS.sumOfSquares(of: buffer) else { return }
 
     var report: Float?
     lock.lock()
@@ -79,5 +63,33 @@ final class AudioLevelMeter: @unchecked Sendable {
     if let report {
       onLevel(report)
     }
+  }
+}
+
+/// Shared RMS accumulation over a buffer's first channel, handling both
+/// Float32 and Int16 formats since the analyzer format may be either. Used
+/// by metering and the speech-activity gate.
+enum AudioBufferRMS {
+  /// Sum of squared samples and the frame count; `nil` for empty buffers or
+  /// unsupported formats.
+  static func sumOfSquares(of buffer: AVAudioPCMBuffer) -> (squares: Double, frames: Int)? {
+    let frames = Int(buffer.frameLength)
+    guard frames > 0 else { return nil }
+
+    var squares: Double = 0
+    if let floatData = buffer.floatChannelData?[0] {
+      for index in 0..<frames {
+        let value = Double(floatData[index])
+        squares += value * value
+      }
+    } else if let intData = buffer.int16ChannelData?[0] {
+      for index in 0..<frames {
+        let value = Double(intData[index]) / Double(Int16.max)
+        squares += value * value
+      }
+    } else {
+      return nil
+    }
+    return (squares, frames)
   }
 }

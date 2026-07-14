@@ -55,11 +55,12 @@ Two targets plus tests:
   | File | Responsibility |
   | --- | --- |
   | `CapturePipeline.swift` | Orchestration actor: `init → prepare() → start() → stop()`; emits `AsyncStream<TranscriptionEvent>` |
-  | `TranscriptionEngine.swift` | SpeechAnalyzer/SpeechTranscriber/SpeechDetector setup, result consumption, silence-driven & periodic forced finalization |
+  | `TranscriptionEngine.swift` | SpeechAnalyzer/SpeechTranscriber setup, result consumption, silence-driven & periodic forced finalization |
   | `AppAudioCapture.swift` | ScreenCaptureKit app/system audio capture + capturable-app listing |
   | `MicrophoneCapture.swift` | AVCaptureSession microphone capture + device listing |
   | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream (single-inlet use doubles as a silence padder) |
   | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
+  | `SpeechActivityGate.swift` | Energy-based speech-presence detection (RMS hysteresis + hangover) feeding `speechActivity` events and silence finalize |
   | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
   | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.diarization` snapshots |
@@ -93,9 +94,11 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
                                                         ▼
         single source: engine sink directly / both: AudioMixer inlets
                                                         ▼
-     AsyncStream<AnalyzerInput> ──▶ SpeechAnalyzer(modules: transcriber, detector)
+     AsyncStream<AnalyzerInput> ──▶ SpeechAnalyzer(modules: transcriber)
                                                         ▼
-      transcriber.results / detector.results ──▶ TranscriptionEvent stream ──▶ UI
+            transcriber.results ──▶ TranscriptionEvent stream ──▶ UI
+     (a SpeechActivityGate taps the engine-bound stream and emits
+      speechActivity events / arms the engine's silence finalize)
 ```
 
 - Each capture converts buffers to the target format on its own serial queue
@@ -109,7 +112,7 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   only job is silence padding, because ScreenCaptureKit delivers nothing
   during system silence and the engine's audio timeline would fall behind
   the wall clock. Each engine's transcripts carry their `AudioSource`; the
-  two detectors' activity is OR-merged (`SourceMergers.swift`) so
+  two activity gates' signals are OR-merged (`SourceMergers.swift`) so
   silence-driven consumers keep seeing one session-level signal. Segments
   from the two engines finalize on independent cadences, so
   `RecordingController` insert-sorts them by date. The modes differ in how
@@ -238,7 +241,7 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 object each tick (so cancelling the auto-stop mid-session applies
 immediately; the estimate itself is only set when the session starts):
 
-1. estimated duration elapsed **and** silence (from `SpeechDetector` via
+1. estimated duration elapsed **and** silence (from `SpeechActivityGate` via
    `SilenceTracker`) ≥ configured threshold → stop;
 2. hard limit (estimate + configurable margin) elapsed → stop unconditionally.
 
@@ -258,10 +261,17 @@ user action.
 
 ## Known constraints & risks
 
-- Combining `SpeechDetector` with `SpeechTranscriber` is implemented the
-  straightforward way; if a combination failure shows up on some OS build,
-  handle it then (transcriber-only fallback or RMS-based silence detection are
-  the candidate mitigations).
+- `SpeechDetector` is deliberately not used: on current macOS 26 builds its
+  result stream never yields (verified empirically — silence-driven features
+  were silently dead), and it occasionally fails with internal errors
+  ("RecogRejected") that can wedge the analyzer so it stops consuming audio.
+  Speech presence comes from `SpeechActivityGate` instead: linear-RMS
+  hysteresis with a hangover, plus a watchdog task so the silent transition
+  fires during ScreenCaptureKit's bufferless system silence. Being
+  energy-based it cannot tell speech from music — app audio carrying BGM
+  reads as continuous speech. Thresholds (on 0.015 / off 0.0075 linear RMS,
+  post-gain) are compile-time defaults; revisit if real-world noise floors
+  prove them wrong.
 - Ad-hoc signing vs TCC: see the bundle section above.
 - The model download for a new locale happens during session preparation and
   is reported on the event stream (`.modelDownload`). The selected FluidAudio

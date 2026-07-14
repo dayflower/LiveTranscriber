@@ -62,13 +62,13 @@ public struct CaptureConfiguration: Sendable {
   public var microphoneGain: Float
   public var appAudioGain: Float
 
-  /// Run `SpeechDetector` alongside the transcriber to obtain
-  /// speech-presence events (used for silence-driven finalization and
-  /// auto-stop).
-  public var enableSpeechDetector: Bool
+  /// Derive speech-presence events from audio energy (`SpeechActivityGate`),
+  /// used for silence-driven finalization, auto-stop, and the activity
+  /// indicator.
+  public var enableSpeechActivity: Bool
 
   /// Force-finalize the pending volatile region after this many seconds of
-  /// detected silence (0 = off). Requires the speech detector.
+  /// detected silence (0 = off). Requires speech-activity detection.
   public var silenceFinalizeSeconds: TimeInterval
 
   /// Force-finalize the pending volatile region every N seconds regardless
@@ -94,7 +94,7 @@ public struct CaptureConfiguration: Sendable {
     speakerSeparation: SpeakerSeparationMode = .off,
     microphoneGain: Float = 1,
     appAudioGain: Float = 1,
-    enableSpeechDetector: Bool = true,
+    enableSpeechActivity: Bool = true,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
     diarizerBackend: DiarizerBackend = .sortformer,
@@ -107,7 +107,7 @@ public struct CaptureConfiguration: Sendable {
     self.speakerSeparation = speakerSeparation
     self.microphoneGain = microphoneGain
     self.appAudioGain = appAudioGain
-    self.enableSpeechDetector = enableSpeechDetector
+    self.enableSpeechActivity = enableSpeechActivity
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
     self.diarizerBackend = diarizerBackend

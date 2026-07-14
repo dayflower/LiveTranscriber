@@ -40,6 +40,7 @@ public actor CapturePipeline {
   private var appAudio: AppAudioCapture?
   private var mixers: [AudioMixer] = []
   private var levelMeters: [AudioLevelMeter] = []
+  private var activityGates: [SpeechActivityGate] = []
   private var engineTasks: [Task<Void, Never>] = []
   private var diarizers: [AudioSource: SpeakerDiarizer] = [:]
   private var stopped = false
@@ -104,23 +105,19 @@ public actor CapturePipeline {
     let continuation = eventContinuation
     let options = TranscriptionEngine.Options(
       locale: locale,
-      enableDetector: configuration.enableSpeechDetector,
       silenceFinalizeSeconds: configuration.silenceFinalizeSeconds,
       periodicFinalizeSeconds: configuration.periodicFinalizeSeconds
     )
 
     if usesEnginePerSource {
       // Two engines share the one events stream: transcripts carry their
-      // source (and, when the mode attributes by source, a speaker label),
-      // and both detectors' activity is OR-merged so silence-driven
-      // consumers see a single session-level signal.
-      let merger = ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
+      // source (and, when the mode attributes by source, a speaker label).
       for source in [AudioSource.microphone, .appAudio] {
         let engine = try await TranscriptionEngine.start(
           options: options,
           emit: Self.labelingEmit(
             speaker: speakerLabel(for: source), source: source,
-            merger: merger, continuation: continuation)
+            continuation: continuation)
         )
         engines.append((source, engine))
       }
@@ -159,19 +156,31 @@ public actor CapturePipeline {
   private static func labelingEmit(
     speaker: SpeakerLabel?,
     source: AudioSource,
-    merger: ActivityMerger,
     continuation: AsyncStream<TranscriptionEvent>.Continuation
   ) -> @Sendable (TranscriptionEvent) -> Void {
     { event in
       switch event {
       case .transcript(let result):
         continuation.yield(.transcript(result.with(speaker: speaker, source: source)))
-      case .speechActivity(let isSpeaking):
-        merger.update(source, isSpeaking: isSpeaking)
       default:
         continuation.yield(event)
       }
     }
+  }
+
+  /// Build one source's activity gate: transitions feed the shared merger
+  /// (or the events stream directly) and arm/cancel that engine's
+  /// silence-driven finalize.
+  private func makeActivityGate(
+    engine: TranscriptionEngine,
+    onChange: @escaping @Sendable (Bool) -> Void
+  ) -> SpeechActivityGate {
+    let gate = SpeechActivityGate { isSpeaking in
+      onChange(isSpeaking)
+      Task { await engine.noteSpeechActivity(isSpeaking: isSpeaking) }
+    }
+    activityGates.append(gate)
+    return gate
   }
 
   /// Start the audio captures and result consumption.
@@ -199,9 +208,16 @@ public actor CapturePipeline {
       // otherwise fall behind the wall clock. A diarized source's diarizer
       // taps the exact stream its engine consumes (post-padding for app
       // audio), so turn offsets share that engine's timeline origin.
+      // Both gates' activity is OR-merged so silence-driven consumers see a
+      // single session-level signal.
+      let merger: ActivityMerger? =
+        configuration.enableSpeechActivity
+        ? ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
+        : nil
       for entry in engines {
         guard let source = entry.source else { continue }
-        let input = entry.engine.input
+        let engine = entry.engine
+        let input = engine.input
         let meter = AudioLevelMeter {
           continuation.yield(.audioLevel(source: source, level: $0))
         }
@@ -212,6 +228,10 @@ public actor CapturePipeline {
         if let diarizer = diarizers[source] {
           await diarizer.start()
           engineFeed = diarizer.tap(engineFeed)
+        }
+        if let merger {
+          let gate = makeActivityGate(engine: engine) { merger.update(source, isSpeaking: $0) }
+          engineFeed = gate.tap(engineFeed)
         }
         let engineSink = meter.tap(engineFeed)
 
@@ -242,6 +262,12 @@ public actor CapturePipeline {
       if let diarizer = diarizers.values.first {
         await diarizer.start()
         engineFeed = diarizer.tap(engineFeed)
+      }
+      if configuration.enableSpeechActivity {
+        let gate = makeActivityGate(engine: engine) {
+          continuation.yield(.speechActivity(isSpeaking: $0))
+        }
+        engineFeed = gate.tap(engineFeed)
       }
 
       // Single source feeds the engine directly; two sources go through the

@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Tracks when speech was last present, from `SpeechDetector` events.
+/// Tracks when speech was last present, from `speechActivity` events.
 @MainActor
 @Observable
 final class SilenceTracker {

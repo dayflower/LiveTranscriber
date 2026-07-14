@@ -129,7 +129,7 @@ public enum TranscriptionEvent: Sendable {
   /// mode). Labels lag transcription by a few seconds, so snapshots may
   /// cover segments that were already finalized.
   case diarization(DiarizationSnapshot)
-  /// Speech presence change reported by `SpeechDetector`.
+  /// Speech presence change derived from audio energy (`SpeechActivityGate`).
   case speechActivity(isSpeaking: Bool)
   /// Smoothed input level (linear RMS, 0...1) of one source, for UI metering.
   case audioLevel(source: AudioSource, level: Float)

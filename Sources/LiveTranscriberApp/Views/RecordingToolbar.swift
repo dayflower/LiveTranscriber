@@ -49,6 +49,7 @@ struct RecordingToolbar: ToolbarContent {
             source: .appAudio, level: level, icon: "macwindow",
             name: String(localized: "Application audio"))
         }
+        SpeechActivityIndicator(isSpeaking: model.recording.silenceTracker.isSpeaking)
         Button {
           model.recording.stop()
         } label: {
@@ -87,6 +88,26 @@ private struct AutoStopIndicator: View {
       }
       .help("Estimated session duration (drives automatic stop)")
     }
+  }
+}
+
+/// Lights up while the speech detector reports speech. Unlike the level
+/// meters (audio energy), this shows what the recognizer's voice-activity
+/// detection thinks — and doubles as a detector health signal: permanently
+/// lit means detection died and was disabled, never lighting up despite
+/// audible speech points at the detector, not the captures.
+private struct SpeechActivityIndicator: View {
+  let isSpeaking: Bool
+
+  var body: some View {
+    Image(systemName: isSpeaking ? "waveform" : "waveform.slash")
+      .font(.caption)
+      .foregroundStyle(isSpeaking ? Color.green : Color.secondary.opacity(0.5))
+      .animation(.easeInOut(duration: 0.15), value: isSpeaking)
+      .help(
+        isSpeaking
+          ? String(localized: "Speech detected")
+          : String(localized: "No speech detected"))
   }
 }
 

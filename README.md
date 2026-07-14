@@ -50,6 +50,11 @@ Everything runs on your Mac using Apple's on-device speech recognition
 - **Per-source input gain**: while recording, click a level meter in the
   toolbar to adjust that source's input gain (0–200%) with immediate effect;
   the setting is remembered for future sessions.
+- **Speech activity indicator**: a waveform icon next to the level meters
+  lights up green while speech-level audio is detected, and drives the
+  silence-based finalization and auto-stop. Detection is energy-based with a
+  short hangover — if the meters barely move and the icon stays dark, the
+  signal is too quiet to register as speech (raise the input gain).
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session. The Mac never goes
   to sleep while recording; optionally the display can be kept awake too

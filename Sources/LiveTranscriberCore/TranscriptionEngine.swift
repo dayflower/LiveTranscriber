@@ -3,19 +3,21 @@ import CoreMedia
 import Foundation
 import Speech
 
-/// Wraps a `SpeechAnalyzer` session: builds the transcriber (and optional
-/// speech detector), owns the audio input stream, consumes result streams, and
-/// emits `TranscriptionEvent`s.
+/// Wraps a `SpeechAnalyzer` session: builds the transcriber, owns the audio
+/// input stream, consumes the result stream, and emits `TranscriptionEvent`s.
 ///
 /// Audio is pushed in through `input` (already converted to `audioFormat`).
 /// Buffers are fed without explicit start times: sample-rate conversion rounds
 /// buffer lengths, so source timestamps would overlap; the analyzer sequences
 /// buffers contiguously on its own.
+///
+/// Speech presence comes from the pipeline's `SpeechActivityGate` via
+/// `noteSpeechActivity`, not from a `SpeechDetector` module — see the gate's
+/// documentation for why.
 actor TranscriptionEngine {
   struct Options: Sendable {
     /// Recognition locale; must already be resolved to a supported locale.
     var locale: Locale
-    var enableDetector: Bool
     /// Force-finalize after this many seconds of detected silence (0 = off).
     var silenceFinalizeSeconds: TimeInterval
     /// Force-finalize every N seconds regardless of activity (0 = off).
@@ -29,7 +31,6 @@ actor TranscriptionEngine {
 
   private let analyzer: SpeechAnalyzer
   private let transcriber: SpeechTranscriber
-  private let detector: SpeechDetector?
   private let options: Options
   private let emit: @Sendable (TranscriptionEvent) -> Void
   private var periodicFinalizeTask: Task<Void, Never>?
@@ -38,7 +39,6 @@ actor TranscriptionEngine {
   private init(
     analyzer: SpeechAnalyzer,
     transcriber: SpeechTranscriber,
-    detector: SpeechDetector?,
     audioFormat: AVAudioFormat,
     input: AsyncStream<AnalyzerInput>.Continuation,
     options: Options,
@@ -46,15 +46,14 @@ actor TranscriptionEngine {
   ) {
     self.analyzer = analyzer
     self.transcriber = transcriber
-    self.detector = detector
     self.audioFormat = audioFormat
     self.input = input
     self.options = options
     self.emit = emit
   }
 
-  /// Build the modules, ensure model assets (reporting download progress via
-  /// `emit`), and start the analyzer.
+  /// Build the transcriber, ensure model assets (reporting download progress
+  /// via `emit`), and start the analyzer.
   static func start(
     options: Options,
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
@@ -67,14 +66,7 @@ actor TranscriptionEngine {
       reportingOptions: [.volatileResults, .fastResults],
       attributeOptions: [.audioTimeRange]
     )
-
-    let detector: SpeechDetector? =
-      options.enableDetector
-      ? SpeechDetector(detectionOptions: .init(sensitivityLevel: .medium), reportResults: true)
-      : nil
-
-    var modules: [any SpeechModule] = [transcriber]
-    if let detector { modules.append(detector) }
+    let modules: [any SpeechModule] = [transcriber]
 
     try await ModelManager.ensureAssets(for: options.locale, modules: modules) { progress in
       emit(.modelDownload(progress: progress))
@@ -94,7 +86,6 @@ actor TranscriptionEngine {
     return TranscriptionEngine(
       analyzer: analyzer,
       transcriber: transcriber,
-      detector: detector,
       audioFormat: format,
       input: continuation,
       options: options,
@@ -102,15 +93,21 @@ actor TranscriptionEngine {
     )
   }
 
-  /// Consume result streams until they finish (i.e. until `finish()` runs and
-  /// pending finals are flushed). Also arms the periodic finalize timer.
+  /// Consume the result stream until it finishes (i.e. until `finish()` runs
+  /// and pending finals are flushed). Also arms the periodic finalize timer.
   func run() async {
     startPeriodicFinalizeIfNeeded()
-    await withTaskGroup(of: Void.self) { group in
-      group.addTask { await self.consumeTranscriberResults() }
-      if detector != nil {
-        group.addTask { await self.consumeDetectorResults() }
-      }
+    await consumeTranscriberResults()
+  }
+
+  /// Speech-activity signal from the pipeline's RMS gate; arms and cancels
+  /// the silence-driven finalize.
+  func noteSpeechActivity(isSpeaking: Bool) {
+    if isSpeaking {
+      silenceFinalizeTask?.cancel()
+      silenceFinalizeTask = nil
+    } else {
+      armSilenceFinalize()
     }
   }
 
@@ -165,27 +162,10 @@ actor TranscriptionEngine {
     }
   }
 
-  private func consumeDetectorResults() async {
-    guard let detector else { return }
-    do {
-      for try await result in detector.results {
-        emit(.speechActivity(isSpeaking: result.speechDetected))
-        if result.speechDetected {
-          silenceFinalizeTask?.cancel()
-          silenceFinalizeTask = nil
-        } else {
-          armSilenceFinalize()
-        }
-      }
-    } catch {
-      emit(.failure("detector: \(error.localizedDescription)"))
-    }
-  }
-
   // MARK: - Forced finalization
 
   /// One-shot: finalize the pending volatile region after continued silence.
-  /// Speech resuming cancels it (see `consumeDetectorResults`).
+  /// Speech resuming cancels it (see `noteSpeechActivity`).
   private func armSilenceFinalize() {
     guard options.silenceFinalizeSeconds > 0, silenceFinalizeTask == nil else { return }
     let delay = options.silenceFinalizeSeconds
