@@ -11,6 +11,22 @@ public enum SpeakerLabel: Sendable, Hashable {
   case diarized(Int)
 }
 
+/// A stretch of transcribed text sharing one audio time range, as reported by
+/// the recognizer's `audioTimeRange` attribute runs. Granularity is up to the
+/// recognizer (per character for Japanese); offsets are on the same timeline
+/// as `TranscriptResult.audioStart` and may be missing for individual runs.
+public struct TranscriptTextRun: Sendable, Equatable {
+  public let text: String
+  public let audioStart: TimeInterval?
+  public let audioEnd: TimeInterval?
+
+  public init(text: String, audioStart: TimeInterval?, audioEnd: TimeInterval?) {
+    self.text = text
+    self.audioStart = audioStart
+    self.audioEnd = audioEnd
+  }
+}
+
 /// A single transcription result produced by the recognizer.
 ///
 /// Volatile results replace the previous volatile text in place; a final result
@@ -28,6 +44,9 @@ public struct TranscriptResult: Sendable {
   /// per source. Diarized turns match only against results from the same
   /// source (each engine has its own audio timeline).
   public let source: AudioSource?
+  /// Per-run audio timings of `text`, only populated for final results.
+  /// Lets diarization split a finalized segment at speaker-turn boundaries.
+  public let runs: [TranscriptTextRun]
 
   public init(
     text: String,
@@ -35,7 +54,8 @@ public struct TranscriptResult: Sendable {
     audioStart: TimeInterval?,
     audioEnd: TimeInterval?,
     speaker: SpeakerLabel? = nil,
-    source: AudioSource? = nil
+    source: AudioSource? = nil,
+    runs: [TranscriptTextRun] = []
   ) {
     self.text = text
     self.isFinal = isFinal
@@ -43,12 +63,13 @@ public struct TranscriptResult: Sendable {
     self.audioEnd = audioEnd
     self.speaker = speaker
     self.source = source
+    self.runs = runs
   }
 
   public func with(speaker: SpeakerLabel?, source: AudioSource?) -> TranscriptResult {
     TranscriptResult(
       text: text, isFinal: isFinal, audioStart: audioStart, audioEnd: audioEnd,
-      speaker: speaker, source: source)
+      speaker: speaker, source: source, runs: runs)
   }
 }
 

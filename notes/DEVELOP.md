@@ -138,7 +138,16 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     upgraded when one arrives — by overlap, or (the diarizer misses short
     or quiet utterances entirely) by binding to the nearest same-source
     turn within 30 s once diarization has processed past the segment, with
-    a final pass at stop. FluidAudio's `SpeakerManager` state is
+    a final pass at stop. A finalized segment that spans a speaker change
+    is split at the turn boundary: final results carry per-run
+    `audioTimeRange` timings (per character for Japanese), each run binds
+    to its longest-overlap turn, and once the diarization frontier passes
+    the segment (`SpeakerAssigner.frontierReached` — turns arrive in order
+    and do not overlap, so its covering turns are complete) the segment is
+    replaced by one piece per speaker stretch (`SpeakerAssigner.split`).
+    Pieces are marked `speakerResolved` so later relabeling never touches
+    them; the streaming file keeps the unsplit line until the finalize
+    rewrite. FluidAudio's `SpeakerManager` state is
     per-instance — a voice present on both streams (e.g. mic echo in a
     meeting app) becomes two speakers. `stop()` flushes the diarizer tails
     before finishing the event stream.

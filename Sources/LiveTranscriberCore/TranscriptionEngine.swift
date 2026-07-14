@@ -134,13 +134,30 @@ actor TranscriptionEngine {
       for try await result in transcriber.results {
         let start = result.range.start.seconds
         let end = result.range.end.seconds
+        // Per-run timings let the app split a finalized segment where the
+        // diarizer places a speaker change; volatiles never get split, so
+        // skip the extraction for them.
+        var runs: [TranscriptTextRun] = []
+        if result.isFinal {
+          for (timeRange, range) in result.text.runs[\.audioTimeRange] {
+            let runStart = timeRange?.start.seconds
+            let runEnd = timeRange?.end.seconds
+            runs.append(
+              TranscriptTextRun(
+                text: String(result.text[range].characters),
+                audioStart: runStart?.isFinite == true ? runStart : nil,
+                audioEnd: runEnd?.isFinite == true ? runEnd : nil
+              ))
+          }
+        }
         emit(
           .transcript(
             TranscriptResult(
               text: String(result.text.characters),
               isFinal: result.isFinal,
               audioStart: start.isFinite ? start : nil,
-              audioEnd: end.isFinite ? end : nil
+              audioEnd: end.isFinite ? end : nil,
+              runs: runs
             )))
       }
     } catch {

@@ -236,7 +236,11 @@ final class RecordingController {
         audioStart: result.audioStart,
         audioEnd: result.audioEnd,
         speaker: speaker,
-        source: result.source
+        source: result.source,
+        runs: result.runs.isEmpty ? nil : result.runs,
+        // A mode-stamped label is authoritative; only diarized attribution
+        // stays open for retro-labeling and splitting.
+        speakerResolved: result.speaker != nil
       )
       // Two source-separated engines finalize on independent cadences, so
       // arrival order is not chronological; keep the in-memory transcript
@@ -251,16 +255,19 @@ final class RecordingController {
     }
   }
 
-  /// Record a diarized turn and retro-label recent segments that are
-  /// unattributed or still carry the provisional source label; the
-  /// finalize-time rewrite persists the labels. Turns only apply to segments
-  /// from the same source (independent timelines). The scan reaches back one
-  /// fallback window past the turn so segments the diarizer skipped can bind
-  /// to their nearest turn.
+  /// Record a diarized turn and retro-label recent segments; the
+  /// finalize-time rewrite persists the outcome. Turns only apply to
+  /// segments from the same source (independent timelines). The scan reaches
+  /// back one fallback window past the turn so segments the diarizer skipped
+  /// can bind to their nearest turn. Walks from the end: a relabel may
+  /// replace one segment with several pieces, which only shifts indices at
+  /// or after the current position.
   private func applySpeakerTurn(_ turn: SpeakerTurn) {
     speakerTurns.append(turn)
     guard let session = liveSession else { return }
-    for index in session.segments.indices.reversed() {
+    var index = session.segments.count - 1
+    while index >= 0 {
+      defer { index -= 1 }
       let segment = session.segments[index]
       guard let start = segment.audioStart, let end = segment.audioEnd else { continue }
       if end < turn.audioStart - SpeakerAssigner.fallbackWindow { break }
@@ -269,31 +276,75 @@ final class RecordingController {
     }
   }
 
-  /// Bind segments that never matched a turn to their nearest one now that
-  /// no more turns can arrive (runs after the event stream has drained).
+  /// Run the final split-or-label pass over every segment now that no more
+  /// turns can arrive (the event stream has drained).
   private func finalizeSpeakerLabels(_ session: TranscriptSession) {
     guard !speakerTurns.isEmpty else { return }
-    for index in session.segments.indices {
-      relabel(session, at: index, sessionEnded: true)
+    var index = 0
+    while index < session.segments.count {
+      index += relabel(session, at: index, sessionEnded: true)
     }
   }
 
-  /// Re-run speaker assignment for one segment if it is still unattributed,
-  /// provisionally labeled by its source, or in the unknown-speaker bucket
-  /// (turns from the same chunk arrive one by one; a later one may match).
-  private func relabel(_ session: TranscriptSession, at index: Int, sessionEnded: Bool) {
+  /// Re-run speaker assignment for one segment unless it is already
+  /// resolved (mode-stamped, or a piece of an earlier split). Once the
+  /// diarization frontier passes the segment its covering turns have all
+  /// arrived: if they attribute it to several speakers, the segment is
+  /// replaced by one piece per speaker stretch. Before the frontier (or
+  /// without usable run timings) the whole segment takes the best current
+  /// label, which later turns may still refine.
+  ///
+  /// Returns how many segments now occupy the slot at `index` (1 unless the
+  /// segment was split), so forward-iterating callers can skip the pieces.
+  @discardableResult
+  private func relabel(_ session: TranscriptSession, at index: Int, sessionEnded: Bool) -> Int {
     let segment = session.segments[index]
-    let provisional = Self.displayLabel(for: Self.label(for: segment.source))
-    let unknown = Self.displayLabel(for: .diarized(0), source: segment.source)
-    guard
-      segment.speaker == nil || segment.speaker == provisional || segment.speaker == unknown
-    else { return }
+    guard !segment.speakerResolved, let start = segment.audioStart, let end = segment.audioEnd
+    else { return 1 }
+
+    let frontier =
+      sessionEnded
+      || SpeakerAssigner.frontierReached(end: end, turns: speakerTurns, scope: segment.source)
+    if frontier, let runs = segment.runs,
+      let pieces = SpeakerAssigner.split(runs: runs, turns: speakerTurns, scope: segment.source),
+      pieces.count > 1
+    {
+      let replacements = pieces.compactMap { piece -> TranscriptSegment? in
+        let text = piece.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return TranscriptSegment(
+          text: text,
+          date: session.startedAt.addingTimeInterval(piece.audioStart),
+          audioStart: piece.audioStart,
+          audioEnd: piece.audioEnd,
+          speaker: Self.displayLabel(for: piece.speaker, source: segment.source),
+          source: segment.source,
+          speakerResolved: true
+        )
+      }
+      if replacements.count > 1 {
+        // The streaming file already holds the unsplit segment; the
+        // finalize-time rewrite persists the pieces (mirrors retro-labels).
+        session.segments.replaceSubrange(index...index, with: replacements)
+        return replacements.count
+      }
+    }
+
     if let label = SpeakerAssigner.speaker(
-      audioStart: segment.audioStart, audioEnd: segment.audioEnd, turns: speakerTurns,
+      audioStart: start, audioEnd: end, turns: speakerTurns,
       scope: segment.source, sessionEnded: sessionEnded)
     {
       session.segments[index].speaker = Self.displayLabel(for: label, source: segment.source)
     }
+    return 1
+  }
+
+  /// Test seam: feed diarized turns through the retro-labeling path as if
+  /// they arrived while `session` was the live one.
+  func applyForTesting(session: TranscriptSession, turns: [SpeakerTurn]) {
+    liveSession = session
+    for turn in turns { applySpeakerTurn(turn) }
+    liveSession = nil
   }
 
   /// Display string for a speaker label. Diarized numbers count per stream,
