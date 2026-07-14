@@ -110,6 +110,17 @@ private struct RecordingSettings: View {
       }
 
       Section {
+        Picker("Diarization model", selection: $settings.diarizerBackend) {
+          Text("Sortformer").tag(DiarizerBackend.sortformer)
+          Text("LS-EEND").tag(DiarizerBackend.lsEEND)
+        }
+
+        Text(
+          "Sortformer keeps very stable speaker identities (up to 4 speakers per stream). LS-EEND is lightweight and handles up to 10 speakers, but is more prone to spurious speakers. Each model downloads on first use."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
         LabeledContent("Minimum turn duration") {
           Slider(value: $settings.diarizerMinTurnSeconds, in: 0.2...3, step: 0.1) {
             EmptyView()

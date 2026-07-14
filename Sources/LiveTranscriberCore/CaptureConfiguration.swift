@@ -21,6 +21,17 @@ public enum SpeakerSeparationMode: String, CaseIterable, Sendable {
   case fluidAudio
 }
 
+/// Which FluidAudio diarization model runs when a separation mode diarizes
+/// (`.hybrid` / `.fluidAudio`). Models download on first use and are cached.
+public enum DiarizerBackend: String, CaseIterable, Sendable {
+  /// NVIDIA streaming Sortformer: very stable speaker identities and
+  /// second-level label latency, capped at 4 speakers per stream.
+  case sortformer
+  /// LS-EEND streaming end-to-end model: lightweight, up to 10 speakers per
+  /// stream, but more prone to false alarms than Sortformer.
+  case lsEEND = "ls-eend"
+}
+
 /// Everything `CapturePipeline` needs to know to set up a session.
 public struct CaptureConfiguration: Sendable {
   /// Which application audio to capture via ScreenCaptureKit.
@@ -64,9 +75,12 @@ public struct CaptureConfiguration: Sendable {
   /// of speech activity (0 = off).
   public var periodicFinalizeSeconds: TimeInterval
 
-  /// Diarized speaker turns shorter than this are discarded (FluidAudio's
-  /// `minSpeechDuration`). Lower values pick up short interjections at the
-  /// cost of less reliable speaker attribution.
+  /// Diarization model to run when the separation mode diarizes.
+  public var diarizerBackend: DiarizerBackend
+
+  /// Diarized speaker turns shorter than this are discarded (the diarizer
+  /// timeline's `minDurationOn`). Lower values pick up short interjections
+  /// at the cost of less reliable speaker attribution.
   public var diarizerMinTurnSeconds: TimeInterval
 
   /// ScreenCaptureKit capture frame rate. Audio arrival cadence is driven by
@@ -83,6 +97,7 @@ public struct CaptureConfiguration: Sendable {
     enableSpeechDetector: Bool = true,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
+    diarizerBackend: DiarizerBackend = .sortformer,
     diarizerMinTurnSeconds: TimeInterval = 1,
     captureFrameRate: Int = 10
   ) {
@@ -95,6 +110,7 @@ public struct CaptureConfiguration: Sendable {
     self.enableSpeechDetector = enableSpeechDetector
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
+    self.diarizerBackend = diarizerBackend
     self.diarizerMinTurnSeconds = diarizerMinTurnSeconds
     self.captureFrameRate = captureFrameRate
   }

@@ -1,4 +1,5 @@
 import Foundation
+import LiveTranscriberCore
 import Observation
 import SwiftUI
 
@@ -99,6 +100,11 @@ final class AppSettings {
     didSet { Self.defaults.set(periodicFinalizeSeconds, forKey: "periodicFinalizeSeconds") }
   }
 
+  /// Diarization model used by the speaker-separating session modes.
+  var diarizerBackend: DiarizerBackend {
+    didSet { Self.defaults.set(diarizerBackend.rawValue, forKey: "diarizerBackend") }
+  }
+
   /// Diarized speaker turns shorter than this are discarded. Lower values
   /// pick up short interjections but attribute speakers less reliably.
   var diarizerMinTurnSeconds: Double {
@@ -163,6 +169,8 @@ final class AppSettings {
       d.object(forKey: "periodicFinalizeEnabled") as? Bool ?? storedPeriodic.map { $0 > 0 } ?? true
     periodicFinalizeSeconds = storedPeriodic.flatMap { $0 > 0 ? $0 : nil } ?? 30
 
+    diarizerBackend =
+      d.string(forKey: "diarizerBackend").flatMap(DiarizerBackend.init) ?? .sortformer
     diarizerMinTurnSeconds = d.object(forKey: "diarizerMinTurnSeconds") as? Double ?? 1
 
     keepDisplayAwake = d.object(forKey: "keepDisplayAwake") as? Bool ?? false

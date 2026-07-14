@@ -328,6 +328,7 @@ struct NewSessionSheet: View {
       appAudioGain: Float(settings.appAudioGain),
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds,
+      diarizerBackend: settings.diarizerBackend,
       diarizerMinTurnSeconds: settings.diarizerMinTurnSeconds
     )
 

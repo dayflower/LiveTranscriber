@@ -123,11 +123,25 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     `SpeakerDiarizer` (never the mix — overlapping speech on a mixed stream
     collapses into whichever voice dominates), tapping the exact stream its
     engine consumes (post-padding for app audio), converting to 16 kHz mono
-    Float32, accumulating 10 s chunks, running FluidAudio, and emitting
-    `.speakerTurn` events. FluidAudio drops turns shorter than its
-    `minSpeechDuration`; the threshold is a Settings value
-    (`diarizerMinTurnSeconds`, default 1 s) carried in
-    `CaptureConfiguration`. Turn offsets share that engine's `audioTimeRange`
+    Float32, running the selected FluidAudio backend, and emitting
+    `.speakerTurn` events. The model is a Settings value
+    (`DiarizerBackend`, carried in `CaptureConfiguration`): `.sortformer`
+    or `.lsEEND`, both frame-streaming `Diarizer`s fed as audio arrives,
+    with their `DiarizerTimelineUpdate`s translated into turns via
+    `DiarizedTurnTracker` — closed (finalized) segments are emitted in
+    full exactly once, and still-open turns are emitted as delta turns so
+    the retro-labeling frontier keeps advancing through long uninterrupted
+    turns. Deltas flush in all-slot batches (triggered by a finalized
+    segment or any slot's pending delta reaching 2 s), which upholds the
+    invariant `SpeakerAssigner.frontierReached` relies on: once any
+    emitted turn ends at T, every speaker's coverage known up to T is out,
+    so segments are never split-and-resolved against a slot whose turns
+    are still held back. A tentative label the model later revises
+    self-corrects: the closing finalized segment spans the whole turn and
+    dominates overlap-based attribution. Turns shorter than the
+    minimum-turn Settings value (`diarizerMinTurnSeconds`, default 1 s) are
+    dropped (the timeline's `minDurationOn`). Turn offsets share that
+    engine's `audioTimeRange`
     origin, and turns carry their source: the app layer matches turns to
     segments of the same source by time overlap (the two timelines have
     independent origins) and retro-labels already-final segments as turns
@@ -142,15 +156,14 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     is split at the turn boundary: final results carry per-run
     `audioTimeRange` timings (per character for Japanese), each run binds
     to its longest-overlap turn, and once the diarization frontier passes
-    the segment (`SpeakerAssigner.frontierReached` — turns arrive in order
-    and do not overlap, so its covering turns are complete) the segment is
-    replaced by one piece per speaker stretch (`SpeakerAssigner.split`).
+    the segment (`SpeakerAssigner.frontierReached` — the tracker's batch
+    flush guarantees the covering turns are complete by then) the segment
+    is replaced by one piece per speaker stretch (`SpeakerAssigner.split`).
     Pieces are marked `speakerResolved` so later relabeling never touches
     them; the streaming file keeps the unsplit line until the finalize
-    rewrite. FluidAudio's `SpeakerManager` state is
-    per-instance — a voice present on both streams (e.g. mic echo in a
-    meeting app) becomes two speakers. `stop()` flushes the diarizer tails
-    before finishing the event stream.
+    rewrite. Speaker slot state is per-instance — a voice present on
+    both streams (e.g. mic echo in a meeting app) becomes two speakers.
+    `stop()` flushes the diarizer tails before finishing the event stream.
   - `.hybrid` (requires both sources; app audio alone degrades to
     `.fluidAudio`, microphone alone to `.off`) — the microphone engine
     stamps `Mic` like `.source`; only the app stream is diarized. Fits the
@@ -249,19 +262,19 @@ user action.
   the candidate mitigations).
 - Ad-hoc signing vs TCC: see the bundle section above.
 - The model download for a new locale happens during session preparation and
-  is reported on the event stream (`.modelDownload`). FluidAudio's
-  diarization models (~100 MB) download the same way on the first diarizing
-  session (cached under FluidAudio's default models directory); each
-  diarizer instance loads its own copy of the models
-  (`DiarizerManager.initialize` consumes them).
+  is reported on the event stream (`.modelDownload`). The selected FluidAudio
+  diarization model downloads the same way on the first diarizing session
+  (cached under FluidAudio's default models directory); each diarizer
+  instance loads its own copy (model containers hold per-instance inference
+  buffers).
 - Every dual-source separation mode runs two `SpeechAnalyzer` sessions in
   parallel, roughly doubling recognition CPU/RAM — and `.fluidAudio` adds a
   diarizer per stream on top; watch thermals on long sessions.
-- Diarization labels lag transcription by up to one chunk (10 s): segments
-  finalize with the provisional source label (Mic/App; none with a single
-  source) and are upgraded when the covering turn arrives. Utterances the
-  diarizer misses (short interjections, quiet speech, the sub-3 s audio
-  tail dropped at stop) bind to the nearest same-source turn within 30 s;
+- Diarization labels lag transcription by a few seconds: segments finalize
+  with the provisional source label (Mic/App; none with a single source)
+  and are upgraded when the covering turn arrives. Utterances the diarizer
+  misses (short interjections, quiet speech) bind to the nearest
+  same-source turn within 30 s;
   past that window they land in the stream's unknown-speaker bucket,
   "Speaker 0". Only a stream with no turns at all keeps the provisional
   label.

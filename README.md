@@ -27,7 +27,10 @@ Everything runs on your Mac using Apple's on-device speech recognition
   application audio. When a speaker change lands inside one finalized
   entry, the entry is split at the change so each part carries its own
   speaker (labels can rearrange for a few seconds after the text appears —
-  diarization runs slightly behind transcription). Each speaker gets its own
+  diarization runs slightly behind transcription). The diarization model is
+  selectable in Settings: **Sortformer** (very stable identities, up to 4
+  speakers per stream) or **LS-EEND** (lightweight, up to 10 speakers per
+  stream). Each speaker gets its own
   badge color in the transcript window, optionally extended to the row
   background (Settings → Appearance). Chosen per session when starting a
   recording; off by default.
@@ -72,7 +75,7 @@ Everything runs on your Mac using Apple's on-device speech recognition
   - **Calendars (full access)** — only when using the calendar suggestions
 - Network access on first use of each language: the on-device speech model is
   downloaded once, then everything runs offline. Speaker diarization likewise
-  downloads its models (about 100 MB) on first use.
+  downloads the selected model on first use.
 
 ## Install & run
 
@@ -100,7 +103,8 @@ macOS attributes the permission grants to the app.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
 5. Settings (⌘,) hold the save folder, file format, timestamps, the
-   auto-stop behavior, the minimum speaker-turn duration for diarization
+   auto-stop behavior, the diarization model, the minimum speaker-turn
+   duration for diarization
    (shorter turns are ignored; lower it to pick up brief interjections at the
    cost of less reliable speaker attribution), priority applications for the
    application picker, the transcript font, size, and spacing (between

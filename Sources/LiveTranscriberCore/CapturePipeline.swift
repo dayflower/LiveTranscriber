@@ -136,6 +136,7 @@ public actor CapturePipeline {
     if !sources.isEmpty {
       diarizers = try await SpeakerDiarizer.prepare(
         sources: sources,
+        backend: configuration.diarizerBackend,
         minTurnSeconds: configuration.diarizerMinTurnSeconds,
         emit: { continuation.yield($0) })
     }
