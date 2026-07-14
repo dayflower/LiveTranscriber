@@ -167,8 +167,26 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     marked `speakerResolved` so later relabeling never touches them; the
     streaming file keeps the unsplit line until the finalize rewrite.
     Speaker slot state is per-instance — a voice present on both streams
-    (e.g. mic echo in a meeting app) becomes two speakers. `stop()`
-    flushes the diarizer tails before finishing the event stream.
+    (e.g. mic echo in a meeting app) becomes two speakers, unless the
+    person is enrolled (see below), which unifies them under one name.
+    `stop()` flushes the diarizer tails before finishing the event stream.
+    **Speaker enrollment**: profiles registered in Settings → Speakers
+    (name + a 5–15 s voice sample recorded via `SpeakerSampleRecorder`,
+    stored as 16 kHz WAV by `SpeakerProfileStore` — the deliberate
+    exception to "audio is never persisted") are selectable per session in
+    the new-session sheet; the selected ones ride in
+    `CaptureConfiguration.enrolledSpeakers` and `SpeakerDiarizer.prepare`
+    enrolls each into every diarizer instance
+    (`Diarizer.enrollSpeaker`, during the preparing phase). The slot the
+    model assigns maps to `SpeakerLabel.named`, so their segments are
+    labeled by name (never source-prefixed — names are stream-independent)
+    while unknown voices keep anonymous numbers; enrollment failures (too
+    little clear speech, similar-voice collisions — LS-EEND is notably
+    weaker here than Sortformer) surface as `.failure` events and fall
+    back to numbered speakers without failing the session. Names are
+    validated at registration against `SessionFileText.isSpeakerLabel` so
+    they survive the session-file round trip. Enrolled speakers occupy
+    Sortformer's four per-stream slots alongside unknown voices.
   - `.hybrid` (requires both sources; app audio alone degrades to
     `.fluidAudio`, microphone alone to `.off`) — the microphone engine
     stamps `Mic` like `.source`; only the app stream is diarized. Fits the

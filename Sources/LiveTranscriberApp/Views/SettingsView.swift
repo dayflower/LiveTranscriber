@@ -11,6 +11,9 @@ struct SettingsView: View {
       Tab("Recording", systemImage: "waveform") {
         RecordingSettings()
       }
+      Tab("Speakers", systemImage: "person.2") {
+        SpeakerSettings()
+      }
       Tab("Appearance", systemImage: "textformat") {
         AppearanceSettings()
       }
@@ -239,6 +242,181 @@ private struct RecordingSettings: View {
   private func secondsLabel(_ value: Double) -> String {
     let format = value.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f s" : "%.1f s"
     return String(format: format, value)
+  }
+}
+
+private struct SpeakerSettings: View {
+  @Environment(AppModel.self) private var model
+  @State private var showingAddSheet = false
+
+  var body: some View {
+    @Bindable var settings = model.settings
+    Form {
+      Section {
+        if settings.speakerProfiles.isEmpty {
+          Text("No speakers registered.")
+            .foregroundStyle(.secondary)
+        }
+        ForEach(settings.speakerProfiles) { profile in
+          HStack {
+            Text(profile.name)
+            Spacer()
+            Text("\(Int(profile.duration.rounded())) s sample")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Button {
+              remove(profile)
+            } label: {
+              Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(profile.name)")
+          }
+        }
+
+        Button("Add Speaker…") { showingAddSheet = true }
+          .sheet(isPresented: $showingAddSheet) { AddSpeakerSheet() }
+      } header: {
+        Text("Registered speakers")
+      } footer: {
+        Text(
+          "A registered voice is labeled by its name in transcripts instead of an anonymous speaker number; pick who is present when starting a session. The recorded voice sample is stored on this Mac — the only audio the app ever saves; session audio never is. Sortformer tracks up to 4 speakers per stream, so registered participants share that limit with unknown voices."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+  }
+
+  private func remove(_ profile: SpeakerProfile) {
+    SpeakerProfileStore().delete(for: profile.id)
+    model.settings.speakerProfiles.removeAll { $0.id == profile.id }
+  }
+}
+
+private struct AddSpeakerSheet: View {
+  @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+  @State private var name = ""
+  @State private var recorder = SpeakerSampleRecorder()
+  @State private var saveError: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Add Speaker")
+        .font(.headline)
+
+      TextField("Name", text: $name, prompt: Text("Shown as the transcript label"))
+        .textFieldStyle(.roundedBorder)
+      if !trimmedName.isEmpty, !nameIsValid {
+        Text(nameProblem)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+
+      Text(
+        "Record \(Int(SpeakerSampleRecorder.minimumSeconds))–\(Int(SpeakerSampleRecorder.maximumSeconds)) seconds of natural speech with the default microphone — for example, introduce yourself and describe your day."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
+      HStack(spacing: 12) {
+        Button {
+          if recorder.isRecording {
+            recorder.stop()
+          } else {
+            Task { await recorder.start() }
+          }
+        } label: {
+          Label(
+            recorder.isRecording
+              ? String(localized: "Stop")
+              : recorder.seconds > 0
+                ? String(localized: "Re-record") : String(localized: "Record"),
+            systemImage: recorder.isRecording ? "stop.circle.fill" : "record.circle"
+          )
+          .frame(width: 110)
+        }
+        .tint(recorder.isRecording ? .red : nil)
+
+        // Mirrors the toolbar's input-level meter: speech RMS rarely
+        // exceeds ~0.3, so the value is scaled up for a useful range.
+        HStack(spacing: 4) {
+          Image(systemName: "mic.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Gauge(value: min(1, Double(recorder.level) * 3)) {
+            EmptyView()
+          }
+          .gaugeStyle(.accessoryLinearCapacity)
+          .tint(.green)
+          .frame(width: 120)
+        }
+        .opacity(recorder.isRecording ? 1 : 0.4)
+
+        Text(verbatim: String(format: "%.1f s", recorder.seconds))
+          .monospacedDigit()
+          .foregroundStyle(recorder.hasEnoughAudio ? .primary : .secondary)
+      }
+
+      if let message = recorder.errorMessage ?? saveError {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+
+      HStack {
+        Spacer()
+        Button("Cancel", role: .cancel) {
+          recorder.cancel()
+          dismiss()
+        }
+        Button("Save") { save() }
+          .keyboardShortcut(.defaultAction)
+          .disabled(recorder.isRecording || !recorder.hasEnoughAudio || !nameIsValid)
+      }
+    }
+    .padding(20)
+    .frame(width: 420)
+  }
+
+  private var trimmedName: String {
+    name.trimmingCharacters(in: .whitespaces)
+  }
+
+  /// Names must survive the session-file round trip (`isSpeakerLabel`) and
+  /// be unique — they are the transcript labels.
+  private var nameIsValid: Bool {
+    SessionFileText.isSpeakerLabel(trimmedName)
+      && !model.settings.speakerProfiles.contains {
+        $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
+      }
+  }
+
+  private var nameProblem: String {
+    if !SessionFileText.isSpeakerLabel(trimmedName) {
+      return String(
+        localized:
+          "Names can use letters, digits, spaces, hyphens, and underscores (up to 32 characters)."
+      )
+    }
+    return String(localized: "A speaker with this name is already registered.")
+  }
+
+  private func save() {
+    let samples = recorder.takeSamples()
+    let profile = SpeakerProfile(
+      id: UUID(), name: trimmedName,
+      duration: TimeInterval(samples.count) / SpeakerProfileStore.sampleRate)
+    do {
+      try SpeakerProfileStore().save(samples: samples, for: profile.id)
+      model.settings.speakerProfiles.append(profile)
+      dismiss()
+    } catch {
+      saveError = error.localizedDescription
+    }
   }
 }
 

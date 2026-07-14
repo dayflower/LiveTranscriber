@@ -7,7 +7,9 @@ online meetings where you want the remote participants and your own voice
 together.
 
 Everything runs on your Mac using Apple's on-device speech recognition
-(macOS 26+). Audio is never saved and never leaves your machine.
+(macOS 26+). Audio never leaves your machine, and session audio is never
+saved (the only audio stored is the short voice samples you explicitly
+record when registering speakers).
 
 ## Features
 
@@ -32,7 +34,10 @@ Everything runs on your Mac using Apple's on-device speech recognition
   diarization runs slightly behind transcription). The diarization model is
   selectable in Settings: **Sortformer** (very stable identities, up to 4
   speakers per stream) or **LS-EEND** (lightweight, up to 10 speakers per
-  stream). Each speaker gets its own
+  stream). Speakers registered in Settings → Speakers (a name plus a short
+  voice sample recorded from the microphone) are labeled **by name** instead
+  of a number; pick who is present when starting the session. Each speaker
+  gets its own
   badge color in the transcript window, optionally extended to the row
   background (Settings → Appearance). Chosen per session when starting a
   recording; off by default.
@@ -113,7 +118,8 @@ macOS attributes the permission grants to the app.
    auto-stop behavior, the diarization model, the minimum speaker-turn
    duration for diarization
    (shorter turns are ignored; lower it to pick up brief interjections at the
-   cost of less reliable speaker attribution), priority applications for the
+   cost of less reliable speaker attribution), registered speakers for
+   name-labeled diarization, priority applications for the
    application picker, the transcript font, size, and spacing (between
    wrapped lines and between entries), and whether transcript rows are
    tinted with the speaker color.

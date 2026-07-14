@@ -9,6 +9,10 @@ public enum SpeakerLabel: Sendable, Hashable {
   /// An anonymous diarized speaker, numbered from 1 in order of first
   /// appearance (FluidAudio mode).
   case diarized(Int)
+  /// A diarized speaker matched to a pre-enrolled profile. Names are
+  /// stream-independent, so the same person enrolled on both streams gets
+  /// one label.
+  case named(String)
 }
 
 /// A stretch of transcribed text sharing one audio time range, as reported by

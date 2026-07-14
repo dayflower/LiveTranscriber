@@ -135,6 +135,7 @@ public actor CapturePipeline {
         sources: sources,
         backend: configuration.diarizerBackend,
         minTurnSeconds: configuration.diarizerMinTurnSeconds,
+        enrolledSpeakers: configuration.enrolledSpeakers,
         emit: { continuation.yield($0) })
     }
     return locale

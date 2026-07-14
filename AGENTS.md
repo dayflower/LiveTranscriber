@@ -72,7 +72,9 @@ needs a manual re-toggle).
   crash leaves behind.
 - Session files: append while recording, atomic full rewrite at finalize.
   Do not introduce in-place header patching.
-- Audio is never persisted anywhere.
+- Session audio is never persisted anywhere. The only audio on disk is the
+  speaker-enrollment samples the user explicitly records in Settings →
+  Speakers (`SpeakerProfileStore`).
 
 ## Things to check before completing a task
 

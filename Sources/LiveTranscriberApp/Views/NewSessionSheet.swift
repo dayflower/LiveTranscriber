@@ -15,6 +15,9 @@ struct NewSessionSheet: View {
   @AppStorage("lastSpeakerSeparation") private var speakerSeparation = SpeakerSeparationMode.off
   @AppStorage("lastEstimatedMinutes") private var estimatedMinutes = 0
   @AppStorage("lastSaveToFile") private var saveToFile = true
+  /// Comma-joined profile IDs enrolled last time; `allParticipantsTag` (the
+  /// initial value) selects everyone, so new profiles default to on.
+  @AppStorage("lastEnrolledSpeakerIDs") private var storedParticipantIDs = allParticipantsTag
 
   @State private var sessionName = ""
   @State private var supportedLocales: [LocaleChoice] = []
@@ -24,8 +27,10 @@ struct NewSessionSheet: View {
   @State private var loadingApps = false
   @State private var showingCalendarSuggestions = false
   @State private var showingCustomDuration = false
+  @State private var showingParticipants = false
 
   private static let systemAudioTag = "__system_audio__"
+  private static let allParticipantsTag = "__all__"
   private static let estimatedChoices = [0, 15, 30, 60, 90, 120]
   private static let customDurationTag = -1
 
@@ -46,7 +51,7 @@ struct NewSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 720, height: 480)
+    .frame(width: 720, height: 520)
     .task { await loadChoices() }
     .onChange(of: appAudioEnabled) {
       if appAudioEnabled {
@@ -171,6 +176,26 @@ struct NewSessionSheet: View {
               .tag(mode)
           }
         }
+
+        if sessionDiarizes, !model.settings.speakerProfiles.isEmpty {
+          LabeledContent("Participants") {
+            Button {
+              showingParticipants = true
+            } label: {
+              HStack(spacing: 4) {
+                Text(participantSummary)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+                Image(systemName: "chevron.up.chevron.down")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+              }
+            }
+            .popover(isPresented: $showingParticipants, arrowEdge: .bottom) {
+              participantList
+            }
+          }
+        }
       } footer: {
         if let note = speakerSeparationNote {
           Text(note)
@@ -181,6 +206,62 @@ struct NewSessionSheet: View {
     }
     .formStyle(.grouped)
     .scrollDisabled(true)
+  }
+
+  /// The chosen mode runs diarization, so registered speakers can be
+  /// enrolled as participants.
+  private var sessionDiarizes: Bool {
+    switch speakerSeparation {
+    case .off, .source: false
+    case .hybrid, .fluidAudio: true
+    }
+  }
+
+  /// One-line summary of the selected participants for the picker row.
+  private var participantSummary: String {
+    let selected = selectedParticipantIDs
+    let names = model.settings.speakerProfiles
+      .filter { selected.contains($0.id) }
+      .map(\.name)
+    switch names.count {
+    case 0: return String(localized: "None")
+    case 1, 2: return names.joined(separator: ", ")
+    default: return "\(names.prefix(2).joined(separator: ", ")) +\(names.count - 2)"
+    }
+  }
+
+  /// Popover checklist of registered speakers; the row stays one line no
+  /// matter how many are registered.
+  private var participantList: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(model.settings.speakerProfiles) { profile in
+          Toggle(profile.name, isOn: participantBinding(for: profile.id))
+        }
+      }
+      .padding(12)
+      .frame(width: 220, alignment: .leading)
+    }
+    .frame(maxHeight: 280)
+  }
+
+  /// Selected participant profile IDs, decoded from the stored string. The
+  /// sentinel selects every registered profile.
+  private var selectedParticipantIDs: Set<UUID> {
+    if storedParticipantIDs == Self.allParticipantsTag {
+      return Set(model.settings.speakerProfiles.map(\.id))
+    }
+    return Set(storedParticipantIDs.components(separatedBy: ",").compactMap(UUID.init))
+  }
+
+  private func participantBinding(for id: UUID) -> Binding<Bool> {
+    Binding {
+      selectedParticipantIDs.contains(id)
+    } set: { included in
+      var ids = selectedParticipantIDs
+      if included { ids.insert(id) } else { ids.remove(id) }
+      storedParticipantIDs = ids.map(\.uuidString).sorted().joined(separator: ",")
+    }
   }
 
   private var speakerSeparationNote: String? {
@@ -329,6 +410,7 @@ struct NewSessionSheet: View {
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds,
       diarizerBackend: settings.diarizerBackend,
+      enrolledSpeakers: enrolledSpeakers(),
       diarizerMinTurnSeconds: settings.diarizerMinTurnSeconds
     )
 
@@ -369,6 +451,21 @@ struct NewSessionSheet: View {
   private var appAudioSource: CaptureConfiguration.AppAudioSource? {
     guard appAudioEnabled else { return nil }
     return appSelection == Self.systemAudioTag ? .systemAudio : .application(bundleID: appSelection)
+  }
+
+  /// Selected participants with their enrollment samples loaded from disk.
+  /// A profile whose sample fails to load is skipped — their speech falls
+  /// back to an anonymous speaker number.
+  private func enrolledSpeakers() -> [EnrolledSpeaker] {
+    guard sessionDiarizes else { return [] }
+    let store = SpeakerProfileStore()
+    let selected = selectedParticipantIDs
+    return model.settings.speakerProfiles
+      .filter { selected.contains($0.id) }
+      .compactMap { profile in
+        guard let samples = try? store.load(for: profile.id) else { return nil }
+        return EnrolledSpeaker(name: profile.name, samples: samples)
+      }
   }
 }
 

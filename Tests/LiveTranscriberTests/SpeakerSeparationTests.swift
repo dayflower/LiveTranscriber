@@ -422,6 +422,44 @@ struct SpeakerSeparationTests {
       RecordingController.displayLabel(for: .diarized(0), source: .microphone) == "Mic Speaker 0")
     // Source-attributed labels never take a prefix.
     #expect(RecordingController.displayLabel(for: .microphone, source: .microphone) == "Mic")
+    // Enrolled names are stream-independent: never prefixed by the source.
+    #expect(RecordingController.displayLabel(for: .named("Alice")) == "Alice")
+    #expect(RecordingController.displayLabel(for: .named("Alice"), source: .appAudio) == "Alice")
+  }
+
+  @Test
+  func speakerAssignerHandlesNamedSpeakers() {
+    // Enrolled (named) and anonymous speakers mix in one snapshot.
+    let named = DiarizedSegment(speaker: .named("Alice"), audioStart: 0, audioEnd: 3)
+    let state = snapshot(frontier: 6, [named, seg(1, 3, 6)])
+    #expect(
+      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, snapshot: state) == .named("Alice"))
+    #expect(SpeakerAssigner.speaker(audioStart: 4, audioEnd: 6, snapshot: state) == .diarized(1))
+    // Equal overlap: numbered speakers win ties for determinism.
+    #expect(
+      SpeakerAssigner.speaker(audioStart: 1.5, audioEnd: 4.5, snapshot: state) == .diarized(1))
+  }
+
+  @MainActor
+  @Test
+  func enrolledNamesRoundTripInEveryFormat() throws {
+    // Enrollment names pass `isSpeakerLabel` by construction (validated at
+    // registration), including non-ASCII letters.
+    for format in SessionFormatID.allCases.map(\.format) {
+      for name in ["Alice", "太郎"] {
+        let snapshot = SessionSnapshot(
+          name: "Named", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+          endedAt: nil, localeIdentifier: "ja-JP", sourceDescription: "Mic",
+          estimatedDuration: nil, timestampsEnabled: true,
+          segments: [
+            TranscriptSegment(
+              text: "hello", date: Date(timeIntervalSince1970: 1_700_000_010),
+              audioStart: nil, audioEnd: nil, speaker: name)
+          ])
+        let restored = try format.read(format.serialize(snapshot))
+        #expect(restored.segments.first?.speaker == name)
+      }
+    }
   }
 
   @MainActor

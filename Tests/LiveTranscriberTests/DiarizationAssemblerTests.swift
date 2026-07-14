@@ -84,4 +84,23 @@ struct DiarizationAssemblerTests {
     #expect(final?.finalized == [seg(1, 0, 1)])
     #expect(final?.open == [])
   }
+
+  @Test("Enrolled slots are labeled by name and do not consume numbers")
+  func enrolledSlots() {
+    var assembler = DiarizationAssembler(enrolledNames: [1: "Alice"])
+    let snapshot = assembler.snapshot(
+      finalized: [
+        Interval(slot: 1, start: 0, end: 2),
+        Interval(slot: 0, start: 2, end: 4),
+      ],
+      open: [Interval(slot: 1, start: 4, end: 5)],
+      frontier: 4.5, source: nil)
+    #expect(
+      snapshot?.finalized == [
+        DiarizedSegment(speaker: .named("Alice"), audioStart: 0, audioEnd: 2),
+        seg(1, 2, 4),
+      ])
+    #expect(
+      snapshot?.open == [DiarizedSegment(speaker: .named("Alice"), audioStart: 4, audioEnd: 5)])
+  }
 }

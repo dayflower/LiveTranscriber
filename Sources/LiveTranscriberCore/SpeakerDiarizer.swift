@@ -59,15 +59,16 @@ actor SpeakerDiarizer {
   private let samples: AsyncStream<[Float]>
   private var consumeTask: Task<Void, Never>?
   /// Timeline updates → emitted snapshots.
-  private var assembler = DiarizationAssembler()
+  private var assembler: DiarizationAssembler
 
   private init(
-    diarizer: any Diarizer, source: AudioSource,
+    diarizer: any Diarizer, source: AudioSource, enrolledNames: [Int: String],
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
   ) {
     self.diarizer = diarizer
     self.source = source
     self.emit = emit
+    self.assembler = DiarizationAssembler(enrolledNames: enrolledNames)
     let (stream, continuation) = AsyncStream<[Float]>.makeStream()
     self.samples = stream
     self.feed = Feed(continuation: continuation)
@@ -83,15 +84,49 @@ actor SpeakerDiarizer {
     sources: [AudioSource],
     backend: DiarizerBackend,
     minTurnSeconds: TimeInterval,
+    enrolledSpeakers: [EnrolledSpeaker] = [],
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
   ) async throws -> [AudioSource: SpeakerDiarizer] {
     emit(.info("Preparing speaker-diarization models…"))
     var diarizers: [AudioSource: SpeakerDiarizer] = [:]
     for source in sources {
       let loaded = try await makeDiarizer(backend, minTurnSeconds: minTurnSeconds, emit: emit)
-      diarizers[source] = SpeakerDiarizer(diarizer: loaded, source: source, emit: emit)
+      let names = enroll(enrolledSpeakers, into: loaded, emit: emit)
+      diarizers[source] = SpeakerDiarizer(
+        diarizer: loaded, source: source, enrolledNames: names, emit: emit)
     }
     return diarizers
+  }
+
+  /// Warm the diarizer with each enrolled speaker's sample and map the slot
+  /// it landed on to the speaker's name. Enrollment failures (too little
+  /// clear speech, a voice colliding with an already-enrolled one) skip
+  /// that speaker — their speech falls back to an anonymous number — and
+  /// never fail the session.
+  private static func enroll(
+    _ speakers: [EnrolledSpeaker], into diarizer: any Diarizer,
+    emit: @Sendable (TranscriptionEvent) -> Void
+  ) -> [Int: String] {
+    var names: [Int: String] = [:]
+    for speaker in speakers {
+      do {
+        guard
+          let enrolled = try diarizer.enrollSpeaker(
+            withAudio: speaker.samples,
+            sourceSampleRate: Self.sampleRate,
+            named: speaker.name,
+            overwritingAssignedSpeakerName: true)
+        else {
+          emit(
+            .failure("Could not enroll \(speaker.name): the sample has too little clear speech."))
+          continue
+        }
+        names[enrolled.index] = speaker.name
+      } catch {
+        emit(.failure("Could not enroll \(speaker.name): \(error.localizedDescription)"))
+      }
+    }
+    return names
   }
 
   private static func makeDiarizer(
@@ -232,9 +267,17 @@ struct DiarizationAssembler {
 
   static let snapshotInterval: TimeInterval = 0.5
 
+  /// Slots occupied by pre-enrolled speakers, labeled by name; anonymous
+  /// slots get 1-based numbers in order of first appearance (enrolled slots
+  /// do not consume numbers).
+  private let enrolledNames: [Int: String]
   private var numbers: [Int: Int] = [:]
   private var finalized: [DiarizedSegment] = []
   private var lastEmittedFrontier: TimeInterval = -.infinity
+
+  init(enrolledNames: [Int: String] = [:]) {
+    self.enrolledNames = enrolledNames
+  }
 
   mutating func snapshot(
     finalized newlyFinalized: [Interval], open: [Interval],
@@ -258,9 +301,14 @@ struct DiarizationAssembler {
 
   private mutating func segment(_ interval: Interval) -> DiarizedSegment {
     DiarizedSegment(
-      speaker: .diarized(number(for: interval.slot)),
+      speaker: label(for: interval.slot),
       audioStart: interval.start,
       audioEnd: interval.end)
+  }
+
+  private mutating func label(for slot: Int) -> SpeakerLabel {
+    if let name = enrolledNames[slot] { return .named(name) }
+    return .diarized(number(for: slot))
   }
 
   private mutating func number(for slot: Int) -> Int {

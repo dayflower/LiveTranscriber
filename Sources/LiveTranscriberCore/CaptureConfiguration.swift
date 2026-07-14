@@ -32,6 +32,19 @@ public enum DiarizerBackend: String, CaseIterable, Sendable {
   case lsEEND = "ls-eend"
 }
 
+/// A speaker to pre-enroll into every diarizer at session start, so their
+/// speech is labeled by name instead of an anonymous speaker number.
+public struct EnrolledSpeaker: Sendable {
+  public let name: String
+  /// Enrollment sample, 16 kHz mono Float32, ideally 5–15 s of clear speech.
+  public let samples: [Float]
+
+  public init(name: String, samples: [Float]) {
+    self.name = name
+    self.samples = samples
+  }
+}
+
 /// Everything `CapturePipeline` needs to know to set up a session.
 public struct CaptureConfiguration: Sendable {
   /// Which application audio to capture via ScreenCaptureKit.
@@ -78,6 +91,11 @@ public struct CaptureConfiguration: Sendable {
   /// Diarization model to run when the separation mode diarizes.
   public var diarizerBackend: DiarizerBackend
 
+  /// Speakers pre-enrolled into every diarized stream. Sortformer has four
+  /// speaker slots per stream; enrolled speakers occupy them, leaving fewer
+  /// for unknown voices.
+  public var enrolledSpeakers: [EnrolledSpeaker]
+
   /// Diarized speaker turns shorter than this are discarded (the diarizer
   /// timeline's `minDurationOn`). Lower values pick up short interjections
   /// at the cost of less reliable speaker attribution.
@@ -98,6 +116,7 @@ public struct CaptureConfiguration: Sendable {
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
     diarizerBackend: DiarizerBackend = .sortformer,
+    enrolledSpeakers: [EnrolledSpeaker] = [],
     diarizerMinTurnSeconds: TimeInterval = 1,
     captureFrameRate: Int = 10
   ) {
@@ -111,6 +130,7 @@ public struct CaptureConfiguration: Sendable {
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
     self.diarizerBackend = diarizerBackend
+    self.enrolledSpeakers = enrolledSpeakers
     self.diarizerMinTurnSeconds = diarizerMinTurnSeconds
     self.captureFrameRate = captureFrameRate
   }

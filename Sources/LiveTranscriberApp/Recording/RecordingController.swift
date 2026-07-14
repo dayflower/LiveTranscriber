@@ -379,7 +379,9 @@ final class RecordingController {
   /// Display string for a speaker label. Diarized numbers count per stream,
   /// so with an engine per source they are prefixed by the segment's source
   /// ("Mic Speaker 1" / "App Speaker 1"); single-engine sessions have no
-  /// source and show a bare "Speaker 1".
+  /// source and show a bare "Speaker 1". Enrolled names are
+  /// stream-independent (the same person is one label on both streams), so
+  /// they never take a prefix.
   static func displayLabel(for speaker: SpeakerLabel?, source: AudioSource? = nil) -> String? {
     switch speaker {
     case .microphone: "Mic"
@@ -390,6 +392,7 @@ final class RecordingController {
       case .appAudio: "App Speaker \(number)"
       case nil: "Speaker \(number)"
       }
+    case .named(let name): name
     case nil: nil
     }
   }

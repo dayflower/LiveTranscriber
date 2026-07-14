@@ -42,7 +42,7 @@ enum SpeakerAssigner {
     for segment in segments {
       let gap = max(segment.audioStart - end, start - segment.audioEnd)
       let closer = nearest.map {
-        gap < $0.gap || (gap == $0.gap && number(of: segment.speaker) < number(of: $0.label))
+        gap < $0.gap || (gap == $0.gap && rank(of: segment.speaker) < rank(of: $0.label))
       }
       if gap <= Self.fallbackWindow, closer ?? true {
         nearest = (segment.speaker, gap)
@@ -75,7 +75,7 @@ enum SpeakerAssigner {
     }
     return overlaps.min { lhs, rhs in
       if lhs.value != rhs.value { return lhs.value > rhs.value }
-      return number(of: lhs.key) < number(of: rhs.key)
+      return rank(of: lhs.key) < rank(of: rhs.key)
     }?.key
   }
 
@@ -111,7 +111,7 @@ enum SpeakerAssigner {
         guard overlap > 0 else { continue }
         let better = best.map {
           overlap > $0.overlap
-            || (overlap == $0.overlap && number(of: segment.speaker) < number(of: $0.label))
+            || (overlap == $0.overlap && rank(of: segment.speaker) < rank(of: $0.label))
         }
         if better ?? true { best = (segment.speaker, overlap) }
       }
@@ -152,8 +152,14 @@ enum SpeakerAssigner {
     return pieces
   }
 
-  private static func number(of label: SpeakerLabel) -> Int {
-    if case .diarized(let number) = label { return number }
-    return .max
+  /// Deterministic tiebreak order: numbered speakers first (by number),
+  /// then named ones (by name).
+  private static func rank(of label: SpeakerLabel) -> (Int, Int, String) {
+    switch label {
+    case .diarized(let number): (0, number, "")
+    case .named(let name): (1, 0, name)
+    case .microphone: (2, 0, "")
+    case .appAudio: (2, 1, "")
+    }
   }
 }

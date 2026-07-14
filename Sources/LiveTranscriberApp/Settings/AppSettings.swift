@@ -105,6 +105,14 @@ final class AppSettings {
     didSet { Self.defaults.set(diarizerBackend.rawValue, forKey: "diarizerBackend") }
   }
 
+  /// Speakers registered for diarization enrollment (Settings → Speakers).
+  /// Enrollment samples live in `SpeakerProfileStore` keyed by profile ID.
+  var speakerProfiles: [SpeakerProfile] {
+    didSet {
+      Self.defaults.set(try? JSONEncoder().encode(speakerProfiles), forKey: "speakerProfiles")
+    }
+  }
+
   /// Diarized speaker turns shorter than this are discarded. Lower values
   /// pick up short interjections but attribute speakers less reliably.
   var diarizerMinTurnSeconds: Double {
@@ -171,6 +179,9 @@ final class AppSettings {
 
     diarizerBackend =
       d.string(forKey: "diarizerBackend").flatMap(DiarizerBackend.init) ?? .sortformer
+    speakerProfiles =
+      d.data(forKey: "speakerProfiles")
+      .flatMap { try? JSONDecoder().decode([SpeakerProfile].self, from: $0) } ?? []
     diarizerMinTurnSeconds = d.object(forKey: "diarizerMinTurnSeconds") as? Double ?? 1
 
     keepDisplayAwake = d.object(forKey: "keepDisplayAwake") as? Bool ?? false
