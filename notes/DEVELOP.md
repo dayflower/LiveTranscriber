@@ -62,7 +62,7 @@ Two targets plus tests:
   | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
   | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
-  | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.speakerTurn` events |
+  | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.diarization` snapshots |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
   | `ModelManager.swift` | `AssetInventory` locale support/reservation/download |
   | `TranscriptionEvent.swift`, `CaptureConfiguration.swift` | Value types crossing the Core/App boundary |
@@ -124,46 +124,44 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     collapses into whichever voice dominates), tapping the exact stream its
     engine consumes (post-padding for app audio), converting to 16 kHz mono
     Float32, running the selected FluidAudio backend, and emitting
-    `.speakerTurn` events. The model is a Settings value
+    `.diarization` snapshot events. The model is a Settings value
     (`DiarizerBackend`, carried in `CaptureConfiguration`): `.sortformer`
     or `.lsEEND`, both frame-streaming `Diarizer`s fed as audio arrives,
-    with their `DiarizerTimelineUpdate`s translated into turns via
-    `DiarizedTurnTracker` — closed (finalized) segments are emitted in
-    full exactly once, and still-open turns are emitted as delta turns so
-    the retro-labeling frontier keeps advancing through long uninterrupted
-    turns. Deltas flush in all-slot batches (triggered by a finalized
-    segment or any slot's pending delta reaching 2 s), which upholds the
-    invariant `SpeakerAssigner.frontierReached` relies on: once any
-    emitted turn ends at T, every speaker's coverage known up to T is out,
-    so segments are never split-and-resolved against a slot whose turns
-    are still held back. A tentative label the model later revises
-    self-corrects: the closing finalized segment spans the whole turn and
-    dominates overlap-based attribution. Turns shorter than the
-    minimum-turn Settings value (`diarizerMinTurnSeconds`, default 1 s) are
-    dropped (the timeline's `minDurationOn`). Turn offsets share that
-    engine's `audioTimeRange`
-    origin, and turns carry their source: the app layer matches turns to
-    segments of the same source by time overlap (the two timelines have
-    independent origins) and retro-labels already-final segments as turns
-    arrive. Speaker numbers count from 1 per stream and the app layer
-    prefixes them with the segment's source ("Mic Speaker 1" /
-    "App Speaker 1"; unprefixed with a single source); segments no turn has
-    covered yet fall back to the bare source label (Mic/App) and are
-    upgraded when one arrives — by overlap, or (the diarizer misses short
-    or quiet utterances entirely) by binding to the nearest same-source
-    turn within 30 s once diarization has processed past the segment, with
-    a final pass at stop. A finalized segment that spans a speaker change
-    is split at the turn boundary: final results carry per-run
+    with their `DiarizerTimelineUpdate`s assembled into
+    `DiarizationSnapshot`s by `DiarizationAssembler`. Each snapshot is the
+    stream's authoritative state and supersedes the previous one: an
+    explicit `frontier` (attribution at or before it is final), the full
+    history of closed segments (each closes exactly once), and the
+    currently open segments (stable up to the frontier; beyond it they may
+    be revised — a later snapshot's closing segment supersedes a
+    provisional label). Updates without a closed segment are throttled to
+    one snapshot per 0.5 s of frontier advance (LS-EEND updates every
+    ~100 ms); the finalize flush is forced and closes every open segment.
+    Segments shorter than the minimum-turn Settings value
+    (`diarizerMinTurnSeconds`, default 1 s) are dropped (the timeline's
+    `minDurationOn`). Snapshot offsets share the engine's `audioTimeRange`
+    origin, and snapshots carry their source: the app layer keeps the
+    latest snapshot per source (the two timelines have independent
+    origins), matches diarized segments to transcripts of the same source
+    by time overlap, and retro-labels already-final transcripts as
+    snapshots arrive. Speaker numbers count from 1 per stream and the app
+    layer prefixes them with the transcript's source ("Mic Speaker 1" /
+    "App Speaker 1"; unprefixed with a single source); transcripts nothing
+    covers yet fall back to the bare source label (Mic/App) and are
+    upgraded when coverage arrives — by overlap, or (the diarizer misses
+    short or quiet utterances entirely) by binding to the nearest diarized
+    segment within 30 s once the frontier has passed the transcript, with
+    a final pass at stop. A finalized transcript that spans a speaker
+    change is split at the boundary: final results carry per-run
     `audioTimeRange` timings (per character for Japanese), each run binds
-    to its longest-overlap turn, and once the diarization frontier passes
-    the segment (`SpeakerAssigner.frontierReached` — the tracker's batch
-    flush guarantees the covering turns are complete by then) the segment
-    is replaced by one piece per speaker stretch (`SpeakerAssigner.split`).
-    Pieces are marked `speakerResolved` so later relabeling never touches
-    them; the streaming file keeps the unsplit line until the finalize
-    rewrite. Speaker slot state is per-instance — a voice present on
-    both streams (e.g. mic echo in a meeting app) becomes two speakers.
-    `stop()` flushes the diarizer tails before finishing the event stream.
+    to its longest-overlap diarized segment, and once the frontier passes
+    the transcript (its coverage is complete by definition) it is replaced
+    by one piece per speaker stretch (`SpeakerAssigner.split`). Pieces are
+    marked `speakerResolved` so later relabeling never touches them; the
+    streaming file keeps the unsplit line until the finalize rewrite.
+    Speaker slot state is per-instance — a voice present on both streams
+    (e.g. mic echo in a meeting app) becomes two speakers. `stop()`
+    flushes the diarizer tails before finishing the event stream.
   - `.hybrid` (requires both sources; app audio alone degrades to
     `.fluidAudio`, microphone alone to `.off`) — the microphone engine
     stamps `Mic` like `.source`; only the app stream is diarized. Fits the

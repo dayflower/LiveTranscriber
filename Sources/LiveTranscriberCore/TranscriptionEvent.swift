@@ -73,24 +73,45 @@ public struct TranscriptResult: Sendable {
   }
 }
 
-/// A diarized stretch of speech attributed to one speaker, on the same audio
-/// timeline as `TranscriptResult.audioStart` of the same source.
-public struct SpeakerTurn: Sendable {
+/// One diarized stretch of speech attributed to one speaker, on the same
+/// audio timeline as `TranscriptResult.audioStart` of the same source.
+/// Speaker numbers are 1-based per stream, in order of first appearance.
+public struct DiarizedSegment: Sendable, Equatable {
   public let speaker: SpeakerLabel
   public let audioStart: TimeInterval
   public let audioEnd: TimeInterval
-  /// Capture stream the diarizer ran on; `nil` means unscoped (matches
-  /// transcripts from any source).
-  public let source: AudioSource?
 
-  public init(
-    speaker: SpeakerLabel, audioStart: TimeInterval, audioEnd: TimeInterval,
-    source: AudioSource? = nil
-  ) {
+  public init(speaker: SpeakerLabel, audioStart: TimeInterval, audioEnd: TimeInterval) {
     self.speaker = speaker
     self.audioStart = audioStart
     self.audioEnd = audioEnd
+  }
+}
+
+/// Authoritative diarization state of one stream at a point in time. Each
+/// snapshot supersedes the previous one from the same source.
+public struct DiarizationSnapshot: Sendable {
+  /// Capture stream the diarizer ran on; `nil` means unscoped (applies to
+  /// transcripts from any source).
+  public let source: AudioSource?
+  /// The diarizer has processed the stream up to here: speaker attribution
+  /// of audio at or before the frontier is final.
+  public let frontier: TimeInterval
+  /// All closed segments so far, ascending by start time.
+  public let finalized: [DiarizedSegment]
+  /// Segments still open at the frontier. Their extent up to the frontier
+  /// is stable; anything beyond may be revised or extended by later
+  /// snapshots.
+  public let open: [DiarizedSegment]
+
+  public init(
+    source: AudioSource?, frontier: TimeInterval,
+    finalized: [DiarizedSegment], open: [DiarizedSegment]
+  ) {
     self.source = source
+    self.frontier = frontier
+    self.finalized = finalized
+    self.open = open
   }
 }
 
@@ -104,9 +125,10 @@ public enum AudioSource: Sendable, Hashable {
 public enum TranscriptionEvent: Sendable {
   /// A volatile or final transcription result.
   case transcript(TranscriptResult)
-  /// A diarized speaker turn (FluidAudio mode). Turns arrive with chunked
-  /// latency and may cover segments that were already finalized.
-  case speakerTurn(SpeakerTurn)
+  /// The diarizer's current timeline state for one stream (FluidAudio
+  /// mode). Labels lag transcription by a few seconds, so snapshots may
+  /// cover segments that were already finalized.
+  case diarization(DiarizationSnapshot)
   /// Speech presence change reported by `SpeechDetector`.
   case speechActivity(isSpeaking: Bool)
   /// Smoothed input level (linear RMS, 0...1) of one source, for UI metering.

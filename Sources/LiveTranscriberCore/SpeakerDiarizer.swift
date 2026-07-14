@@ -3,20 +3,21 @@ import FluidAudio
 import Foundation
 
 /// Runs FluidAudio speaker diarization in parallel with transcription and
-/// emits `.speakerTurn` events.
+/// emits `.diarization` snapshot events.
 ///
 /// One instance diarizes one capture stream. Audio taps in via `tap(_:)` on
 /// the exact stream the recognition engine consumes, so accumulated sample
-/// offsets share that engine's timeline origin, and emitted turns carry the
-/// stream's `AudioSource` so they only match transcripts from the same
-/// source. Speaker numbers count from 1 per instance; the app layer prefixes
-/// them with the source, so numbers only need to be unique per stream.
-/// Buffers are converted to 16 kHz mono Float32 on the delivering queue and
-/// fed to a frame-streaming FluidAudio `Diarizer` (the `DiarizerBackend`
-/// picks the model) as audio arrives; its timeline updates are translated
-/// into turns via `DiarizedTurnTracker`. Speaker identities are consistent
-/// within one instance (but not across instances — a voice present on both
-/// streams becomes two speakers). The audio only ever lives in memory.
+/// offsets share that engine's timeline origin, and emitted snapshots carry
+/// the stream's `AudioSource` so they only apply to transcripts from the
+/// same source. Speaker numbers count from 1 per instance; the app layer
+/// prefixes them with the source, so numbers only need to be unique per
+/// stream. Buffers are converted to 16 kHz mono Float32 on the delivering
+/// queue and fed to a frame-streaming FluidAudio `Diarizer` (the
+/// `DiarizerBackend` picks the model) as audio arrives; its timeline updates
+/// are assembled into `DiarizationSnapshot`s via `DiarizationAssembler`.
+/// Speaker identities are consistent within one instance (but not across
+/// instances — a voice present on both streams becomes two speakers). The
+/// audio only ever lives in memory.
 actor SpeakerDiarizer {
   /// Both supported models operate on 16 kHz mono Float32 (`process` would
   /// resample for a model that reports a different rate).
@@ -57,8 +58,8 @@ actor SpeakerDiarizer {
   private let feed: Feed
   private let samples: AsyncStream<[Float]>
   private var consumeTask: Task<Void, Never>?
-  /// Timeline updates → emitted turn intervals.
-  private var turnTracker = DiarizedTurnTracker()
+  /// Timeline updates → emitted snapshots.
+  private var assembler = DiarizationAssembler()
 
   private init(
     diarizer: any Diarizer, source: AudioSource,
@@ -168,107 +169,98 @@ actor SpeakerDiarizer {
     for await chunk in samples {
       do {
         if let update = try diarizer.process(samples: chunk, sourceSampleRate: Self.sampleRate) {
-          emitTurns(from: update)
+          emitSnapshot(from: update)
         }
       } catch {
         emit(.failure("diarizer: \(error.localizedDescription)"))
       }
     }
     do {
-      // Tentative turns were already emitted as they grew; the finalize
-      // update re-covers them with authoritative finalized segments.
-      if let update = try diarizer.finalizeSession() {
-        emitTurns(from: update, includeTentative: false)
-      }
+      // Finalizing absorbs the trailing tentative region, so the forced
+      // snapshot closes every previously open segment.
+      let update = try diarizer.finalizeSession()
+      emitSnapshot(from: update, force: true)
     } catch {
       emit(.failure("diarizer: \(error.localizedDescription)"))
     }
   }
 
-  private func emitTurns(from update: DiarizerTimelineUpdate, includeTentative: Bool = true) {
-    let turns = turnTracker.turns(
-      finalized: update.finalizedSegments.map(Self.interval),
-      tentative: includeTentative ? update.tentativeSegments.map(Self.interval) : [])
-    for turn in turns {
-      emit(
-        .speakerTurn(
-          SpeakerTurn(
-            speaker: .diarized(turn.number),
-            audioStart: turn.start,
-            audioEnd: turn.end,
-            source: source
-          )))
-    }
+  private func emitSnapshot(from update: DiarizerTimelineUpdate?, force: Bool = false) {
+    let snapshot = assembler.snapshot(
+      finalized: (update?.finalizedSegments ?? []).map(Self.interval),
+      open: (update?.tentativeSegments ?? []).map(Self.interval),
+      frontier: frontier(),
+      source: source,
+      force: force
+    )
+    if let snapshot { emit(.diarization(snapshot)) }
   }
 
-  private static func interval(_ segment: DiarizerSegment) -> DiarizedTurnTracker.Interval {
-    DiarizedTurnTracker.Interval(
+  /// Attribution of audio at or before this offset is final. The models
+  /// report a frame rate once initialized; without one (unreachable) a zero
+  /// frontier just keeps the app from locking labels in.
+  private func frontier() -> TimeInterval {
+    guard let frameHz = diarizer.modelFrameHz, frameHz > 0 else { return 0 }
+    return Double(diarizer.numFramesProcessed) / frameHz
+  }
+
+  private static func interval(_ segment: DiarizerSegment) -> DiarizationAssembler.Interval {
+    DiarizationAssembler.Interval(
       slot: segment.speakerIndex,
       start: TimeInterval(segment.startTime),
       end: TimeInterval(segment.endTime))
   }
 }
 
-/// Translates a streaming diarizer's timeline updates into `SpeakerTurn`
-/// intervals, mapping fixed speaker slots to stable 1-based numbers in order
-/// of first appearance.
+/// Assembles a streaming diarizer's timeline updates into
+/// `DiarizationSnapshot`s, mapping fixed speaker slots to stable 1-based
+/// numbers in order of first appearance.
 ///
-/// Finalized segments arrive exactly once (when a turn closes) and are
-/// emitted in full. Still-open turns are re-reported as growing tentative
-/// segments on every update; only the not-yet-emitted delta becomes a turn.
-/// Emission is all-or-nothing per update: nothing is emitted until a
-/// finalized segment arrives or some slot's pending delta reaches
-/// `minTentativeDelta` (which keeps sub-second turns from flooding the app's
-/// retro-labeling), and then every slot's pending delta flushes together.
-/// The batch flush upholds the invariant `SpeakerAssigner` derives its
-/// frontier from — once any emitted turn ends at time T, all speakers'
-/// coverage known up to T has been emitted — so a segment is never
-/// split-and-resolved while an overlapping slot's coverage is still held
-/// back by the delta threshold. A tentative label the model later revises
-/// self-corrects: the closing finalized segment spans the whole turn and
-/// dominates overlap-based attribution.
-struct DiarizedTurnTracker {
+/// Finalized segments arrive exactly once (when a turn closes) and
+/// accumulate into the snapshot's full history; open segments are the
+/// update's complete tentative state and replace the previous ones. Updates
+/// without a closed segment only produce a snapshot once the frontier has
+/// advanced `snapshotInterval` past the last emitted one, which caps the
+/// retro-labeling churn from high-frequency models (LS-EEND updates every
+/// ~100 ms); `force` bypasses the throttle for the final flush.
+struct DiarizationAssembler {
   struct Interval: Equatable {
     var slot: Int
     var start: TimeInterval
     var end: TimeInterval
   }
 
-  struct Turn: Equatable {
-    var number: Int
-    var start: TimeInterval
-    var end: TimeInterval
-  }
+  static let snapshotInterval: TimeInterval = 0.5
 
-  private var emittedEnd: [Int: TimeInterval] = [:]
   private var numbers: [Int: Int] = [:]
-  private let minTentativeDelta: TimeInterval
+  private var finalized: [DiarizedSegment] = []
+  private var lastEmittedFrontier: TimeInterval = -.infinity
 
-  init(minTentativeDelta: TimeInterval = 2) {
-    self.minTentativeDelta = minTentativeDelta
+  mutating func snapshot(
+    finalized newlyFinalized: [Interval], open: [Interval],
+    frontier: TimeInterval, source: AudioSource?, force: Bool = false
+  ) -> DiarizationSnapshot? {
+    for interval in newlyFinalized {
+      finalized.append(segment(interval))
+    }
+    guard
+      force || !newlyFinalized.isEmpty
+        || frontier - lastEmittedFrontier >= Self.snapshotInterval
+    else { return nil }
+    lastEmittedFrontier = frontier
+    var openSegments: [DiarizedSegment] = []
+    for interval in open {
+      openSegments.append(segment(interval))
+    }
+    return DiarizationSnapshot(
+      source: source, frontier: frontier, finalized: finalized, open: openSegments)
   }
 
-  mutating func turns(finalized: [Interval], tentative: [Interval]) -> [Turn] {
-    let flush =
-      !finalized.isEmpty
-      || tentative.contains { pendingDelta(of: $0) >= minTentativeDelta }
-    guard flush else { return [] }
-
-    var turns = finalized.map { interval in
-      emittedEnd[interval.slot] = max(emittedEnd[interval.slot] ?? interval.end, interval.end)
-      return Turn(number: number(for: interval.slot), start: interval.start, end: interval.end)
-    }
-    for interval in tentative {
-      guard pendingDelta(of: interval) > 0 else { continue }
-      let from = max(interval.start, emittedEnd[interval.slot] ?? interval.start)
-      emittedEnd[interval.slot] = interval.end
-      turns.append(Turn(number: number(for: interval.slot), start: from, end: interval.end))
-    }
-    return turns
-  }
-
-  private func pendingDelta(of interval: Interval) -> TimeInterval {
-    interval.end - max(interval.start, emittedEnd[interval.slot] ?? interval.start)
+  private mutating func segment(_ interval: Interval) -> DiarizedSegment {
+    DiarizedSegment(
+      speaker: .diarized(number(for: interval.slot)),
+      audioStart: interval.start,
+      audioEnd: interval.end)
   }
 
   private mutating func number(for slot: Int) -> Int {

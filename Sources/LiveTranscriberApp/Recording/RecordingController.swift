@@ -56,9 +56,10 @@ final class RecordingController {
 
   private var pipeline: CapturePipeline?
   private var eventTask: Task<Void, Never>?
-  /// Diarized turns for the live session, used to label finalized segments
-  /// (and retro-label recent ones — diarization arrives in chunks).
-  private var speakerTurns: [SpeakerTurn] = []
+  /// Latest diarization snapshot per stream, used to label finalized
+  /// segments (and retro-label recent ones — diarization lags
+  /// transcription). Each snapshot supersedes the previous one.
+  private var diarization: [AudioSource?: DiarizationSnapshot] = [:]
   /// Keeps App Nap / idle sleep from throttling us while recording in the
   /// background (e.g. with the window closed).
   private var activityToken: (any NSObjectProtocol)?
@@ -75,7 +76,7 @@ final class RecordingController {
     phase = .preparing
     modelDownloadProgress = nil
     lastError = nil
-    speakerTurns = []
+    diarization = [:]
 
     Task {
       do {
@@ -157,9 +158,10 @@ final class RecordingController {
         activityToken = nil
       }
       if let session = liveSession {
-        // All turns have arrived (teardown drained the event stream), so
-        // remaining provisional labels can bind to their nearest turn
-        // before the finalize rewrite persists them.
+        // The final snapshots have arrived (teardown drained the event
+        // stream), so remaining provisional labels can bind to their
+        // nearest diarized segment before the finalize rewrite persists
+        // them.
         finalizeSpeakerLabels(session)
         session.endedAt = Date()
         session.volatiles = []
@@ -185,8 +187,8 @@ final class RecordingController {
       switch event {
       case .transcript(let result):
         applyTranscript(result)
-      case .speakerTurn(let turn):
-        applySpeakerTurn(turn)
+      case .diarization(let snapshot):
+        applyDiarization(snapshot)
       case .speechActivity(let isSpeaking):
         silenceTracker.update(isSpeaking: isSpeaking)
         onSpeechActivity?(isSpeaking)
@@ -217,9 +219,10 @@ final class RecordingController {
       // provisional label (diarization lags; retro-labeling upgrades it).
       let label =
         result.speaker
-        ?? SpeakerAssigner.speaker(
-          audioStart: result.audioStart, audioEnd: result.audioEnd, turns: speakerTurns,
-          scope: result.source)
+        ?? snapshot(for: result.source).flatMap {
+          SpeakerAssigner.speaker(
+            audioStart: result.audioStart, audioEnd: result.audioEnd, snapshot: $0)
+        }
         ?? Self.label(for: result.source)
       let speaker = Self.displayLabel(for: label, source: result.source)
       // Prefer the audio-timeline offset for the wall-clock stamp; it is
@@ -255,31 +258,44 @@ final class RecordingController {
     }
   }
 
-  /// Record a diarized turn and retro-label recent segments; the
-  /// finalize-time rewrite persists the outcome. Turns only apply to
-  /// segments from the same source (independent timelines). The scan reaches
-  /// back one fallback window past the turn so segments the diarizer skipped
-  /// can bind to their nearest turn. Walks from the end: a relabel may
-  /// replace one segment with several pieces, which only shifts indices at
-  /// or after the current position.
-  private func applySpeakerTurn(_ turn: SpeakerTurn) {
-    speakerTurns.append(turn)
+  /// The diarization snapshot that applies to a segment or transcript from
+  /// `source`. Dual-engine sessions stamp sources on both sides, so the
+  /// lookup is direct; single-engine transcripts carry no source and take
+  /// the lone diarizer's snapshot (stored under its concrete source). A
+  /// stream that was never diarized (the microphone in hybrid mode) has no
+  /// snapshot and keeps its provisional source label.
+  private func snapshot(for source: AudioSource?) -> DiarizationSnapshot? {
+    if let snapshot = diarization[source] { return snapshot }
+    guard source == nil, diarization.count == 1 else { return nil }
+    return diarization.first?.value
+  }
+
+  /// Store a stream's latest snapshot and retro-label recent segments; the
+  /// finalize-time rewrite persists the outcome. Snapshots only apply to
+  /// segments from the same source (independent timelines). New information
+  /// since the previous snapshot lies past its frontier, so the scan
+  /// reaches back one fallback window before that; older segments already
+  /// saw everything that could label them. Walks from the end: a relabel
+  /// may replace one segment with several pieces, which only shifts indices
+  /// at or after the current position.
+  private func applyDiarization(_ snapshot: DiarizationSnapshot) {
+    let previousFrontier = diarization[snapshot.source]?.frontier ?? 0
+    diarization[snapshot.source] = snapshot
     guard let session = liveSession else { return }
     var index = session.segments.count - 1
     while index >= 0 {
       defer { index -= 1 }
       let segment = session.segments[index]
-      guard let start = segment.audioStart, let end = segment.audioEnd else { continue }
-      if end < turn.audioStart - SpeakerAssigner.fallbackWindow { break }
-      guard start < turn.audioEnd + SpeakerAssigner.fallbackWindow else { continue }
+      guard let end = segment.audioEnd else { continue }
+      if end < previousFrontier - SpeakerAssigner.fallbackWindow { break }
       relabel(session, at: index, sessionEnded: false)
     }
   }
 
   /// Run the final split-or-label pass over every segment now that no more
-  /// turns can arrive (the event stream has drained).
+  /// snapshots can arrive (the event stream has drained).
   private func finalizeSpeakerLabels(_ session: TranscriptSession) {
-    guard !speakerTurns.isEmpty else { return }
+    guard !diarization.isEmpty else { return }
     var index = 0
     while index < session.segments.count {
       index += relabel(session, at: index, sessionEnded: true)
@@ -288,25 +304,24 @@ final class RecordingController {
 
   /// Re-run speaker assignment for one segment unless it is already
   /// resolved (mode-stamped, or a piece of an earlier split). Once the
-  /// diarization frontier passes the segment its covering turns have all
-  /// arrived: if they attribute it to several speakers, the segment is
-  /// replaced by one piece per speaker stretch. Before the frontier (or
-  /// without usable run timings) the whole segment takes the best current
-  /// label, which later turns may still refine.
+  /// diarization frontier passes the segment its coverage is complete: if
+  /// it attributes the segment to several speakers, the segment is replaced
+  /// by one piece per speaker stretch. Before the frontier (or without
+  /// usable run timings) the whole segment takes the best current label,
+  /// which later snapshots may still refine.
   ///
   /// Returns how many segments now occupy the slot at `index` (1 unless the
   /// segment was split), so forward-iterating callers can skip the pieces.
   @discardableResult
   private func relabel(_ session: TranscriptSession, at index: Int, sessionEnded: Bool) -> Int {
     let segment = session.segments[index]
-    guard !segment.speakerResolved, let start = segment.audioStart, let end = segment.audioEnd
+    guard !segment.speakerResolved, let start = segment.audioStart, let end = segment.audioEnd,
+      let snapshot = snapshot(for: segment.source)
     else { return 1 }
 
-    let frontier =
-      sessionEnded
-      || SpeakerAssigner.frontierReached(end: end, turns: speakerTurns, scope: segment.source)
+    let frontier = sessionEnded || snapshot.frontier >= end
     if frontier, let runs = segment.runs,
-      let pieces = SpeakerAssigner.split(runs: runs, turns: speakerTurns, scope: segment.source),
+      let pieces = SpeakerAssigner.split(runs: runs, snapshot: snapshot),
       pieces.count > 1
     {
       let replacements = pieces.compactMap { piece -> TranscriptSegment? in
@@ -331,19 +346,18 @@ final class RecordingController {
     }
 
     if let label = SpeakerAssigner.speaker(
-      audioStart: start, audioEnd: end, turns: speakerTurns,
-      scope: segment.source, sessionEnded: sessionEnded)
+      audioStart: start, audioEnd: end, snapshot: snapshot, sessionEnded: sessionEnded)
     {
       session.segments[index].speaker = Self.displayLabel(for: label, source: segment.source)
     }
     return 1
   }
 
-  /// Test seam: feed diarized turns through the retro-labeling path as if
-  /// they arrived while `session` was the live one.
-  func applyForTesting(session: TranscriptSession, turns: [SpeakerTurn]) {
+  /// Test seam: feed diarization snapshots through the retro-labeling path
+  /// as if they arrived while `session` was the live one.
+  func applyForTesting(session: TranscriptSession, snapshots: [DiarizationSnapshot]) {
     liveSession = session
-    for turn in turns { applySpeakerTurn(turn) }
+    for snapshot in snapshots { applyDiarization(snapshot) }
     liveSession = nil
   }
 

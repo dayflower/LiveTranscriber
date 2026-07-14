@@ -1,57 +1,53 @@
 import Foundation
 import LiveTranscriberCore
 
-/// Assigns diarized speaker turns to transcript segments by time overlap on
-/// the shared audio timeline.
+/// Assigns diarized speakers to transcript segments by time overlap against
+/// a `DiarizationSnapshot` on the shared audio timeline. Which snapshot
+/// applies to a segment (streams have independent timelines) is the
+/// caller's job — `RecordingController` keeps one snapshot per source.
 enum SpeakerAssigner {
-  /// Maximum time distance for the nearest-turn fallback. The diarizer can
-  /// miss short or quiet utterances entirely (no covering turn ever
-  /// arrives); binding such a segment to a speaker heard within this window
-  /// beats leaving it unattributed, while a farther match would be a guess.
+  /// Maximum time distance for the nearest-segment fallback. The diarizer
+  /// can miss short or quiet utterances entirely (no covering segment ever
+  /// appears); binding such a transcript to a speaker heard within this
+  /// window beats leaving it unattributed, while a farther match would be a
+  /// guess.
   static let fallbackWindow: TimeInterval = 30
 
-  /// The speaker whose turns overlap `[audioStart, audioEnd]` the longest;
-  /// `nil` when the segment has no offsets or its stream was never diarized.
-  /// Ties resolve to the lowest speaker number for determinism.
+  /// The speaker whose diarized segments overlap `[audioStart, audioEnd]`
+  /// the longest; `nil` when the transcript has no offsets or the snapshot
+  /// holds no segments at all (a diarized stream that heard no speech keeps
+  /// its provisional source label). Ties resolve to the lowest speaker
+  /// number for determinism. Open segments count like finalized ones, so
+  /// pre-frontier labels stay fresh during long turns.
   ///
-  /// When nothing overlaps, falls back to the nearest turn within
+  /// When nothing overlaps, falls back to the nearest segment within
   /// `fallbackWindow`, and past that to `.diarized(0)` — the per-stream
   /// "unknown speaker" bucket for speech the diarizer could not attribute.
-  /// Both fallbacks wait until diarization has processed past the segment
-  /// (some turn ends at or after it), because until then the covering turn
-  /// may simply not have arrived yet. Pass `sessionEnded: true` to drop
-  /// that frontier check once no more turns can arrive (trailing segments
-  /// sit beyond the last turn forever).
-  ///
-  /// When two engines run (one per source) their audio timelines have
-  /// independent origins, so a segment from one source must only match turns
-  /// diarized from the same source: pass the segment's source as `scope`.
-  /// A `nil` scope or a `nil` turn source matches anything (single-engine
-  /// sessions have one timeline).
+  /// Both fallbacks wait until the frontier has passed the transcript
+  /// (before that the covering segment may simply not exist yet); pass
+  /// `sessionEnded: true` to drop that check once no more snapshots can
+  /// arrive.
   static func speaker(
-    audioStart: TimeInterval?, audioEnd: TimeInterval?, turns: [SpeakerTurn],
-    scope: AudioSource? = nil, sessionEnded: Bool = false
+    audioStart: TimeInterval?, audioEnd: TimeInterval?,
+    snapshot: DiarizationSnapshot, sessionEnded: Bool = false
   ) -> SpeakerLabel? {
     guard let start = audioStart, let end = audioEnd, end > start else { return nil }
+    let segments = snapshot.finalized + snapshot.open
+    guard !segments.isEmpty else { return nil }
 
     var overlaps: [SpeakerLabel: TimeInterval] = [:]
     var nearest: (label: SpeakerLabel, gap: TimeInterval)?
-    var scopedTurnSeen = false
-    var frontierReached = sessionEnded
-    for turn in turns {
-      guard scope == nil || turn.source == nil || turn.source == scope else { continue }
-      scopedTurnSeen = true
-      if turn.audioEnd >= end { frontierReached = true }
-      let overlap = min(end, turn.audioEnd) - max(start, turn.audioStart)
+    for segment in segments {
+      let overlap = min(end, segment.audioEnd) - max(start, segment.audioStart)
       if overlap > 0 {
-        overlaps[turn.speaker, default: 0] += overlap
+        overlaps[segment.speaker, default: 0] += overlap
       } else {
-        let gap = max(turn.audioStart - end, start - turn.audioEnd)
+        let gap = max(segment.audioStart - end, start - segment.audioEnd)
         let closer = nearest.map {
-          gap < $0.gap || (gap == $0.gap && number(of: turn.speaker) < number(of: $0.label))
+          gap < $0.gap || (gap == $0.gap && number(of: segment.speaker) < number(of: $0.label))
         }
         if gap <= Self.fallbackWindow, closer ?? true {
-          nearest = (turn.speaker, gap)
+          nearest = (segment.speaker, gap)
         }
       }
     }
@@ -61,9 +57,7 @@ enum SpeakerAssigner {
       return number(of: lhs.key) < number(of: rhs.key)
     }?.key
     if let overlapping { return overlapping }
-    // Guarding on a scoped turn keeps streams that are not diarized at all
-    // (e.g. the microphone in hybrid mode) on their source label.
-    guard scopedTurnSeen, frontierReached else { return nil }
+    guard sessionEnded || snapshot.frontier >= end else { return nil }
     return nearest?.label ?? .diarized(0)
   }
 
@@ -76,41 +70,32 @@ enum SpeakerAssigner {
     var speaker: SpeakerLabel
   }
 
-  /// True once diarization has processed past `end` on the scoped stream —
-  /// some turn ends at or after it, so the turns covering `end` have
-  /// arrived (chunks are diarized in order and turns do not overlap).
-  static func frontierReached(
-    end: TimeInterval, turns: [SpeakerTurn], scope: AudioSource? = nil
-  ) -> Bool {
-    turns.contains { turn in
-      (scope == nil || turn.source == nil || turn.source == scope) && turn.audioEnd >= end
-    }
-  }
-
-  /// Split a finalized segment's text at speaker-turn boundaries: each run
-  /// binds to the turn it overlaps the longest, runs no turn covers inherit
-  /// the previous run's speaker (leading ones take the first attributed
-  /// speaker), and consecutive same-speaker runs merge into one piece.
+  /// Split a finalized segment's text at speaker boundaries: each run binds
+  /// to the diarized segment it overlaps the longest, runs nothing covers
+  /// inherit the previous run's speaker (leading ones take the first
+  /// attributed speaker), and consecutive same-speaker runs merge into one
+  /// piece.
   ///
-  /// Returns `nil` when no run overlaps any scoped turn — the caller falls
-  /// back to whole-segment assignment. A single-piece result means the
-  /// segment has one speaker; only call this once `frontierReached` (or the
-  /// session ended), otherwise turns still to come would re-split the text.
+  /// Returns `nil` when no run overlaps any diarized segment — the caller
+  /// falls back to whole-segment assignment. A single-piece result means
+  /// the segment has one speaker; only call this once the frontier has
+  /// passed the segment (or the session ended), otherwise coverage still to
+  /// come would re-split the text.
   static func split(
-    runs: [TranscriptTextRun], turns: [SpeakerTurn], scope: AudioSource? = nil
+    runs: [TranscriptTextRun], snapshot: DiarizationSnapshot
   ) -> [SplitPiece]? {
+    let segments = snapshot.finalized + snapshot.open
     var assignments: [SpeakerLabel?] = runs.map { run in
       guard let start = run.audioStart, let end = run.audioEnd, end > start else { return nil }
       var best: (label: SpeakerLabel, overlap: TimeInterval)?
-      for turn in turns {
-        guard scope == nil || turn.source == nil || turn.source == scope else { continue }
-        let overlap = min(end, turn.audioEnd) - max(start, turn.audioStart)
+      for segment in segments {
+        let overlap = min(end, segment.audioEnd) - max(start, segment.audioStart)
         guard overlap > 0 else { continue }
         let better = best.map {
           overlap > $0.overlap
-            || (overlap == $0.overlap && number(of: turn.speaker) < number(of: $0.label))
+            || (overlap == $0.overlap && number(of: segment.speaker) < number(of: $0.label))
         }
-        if better ?? true { best = (turn.speaker, overlap) }
+        if better ?? true { best = (segment.speaker, overlap) }
       }
       return best?.label
     }

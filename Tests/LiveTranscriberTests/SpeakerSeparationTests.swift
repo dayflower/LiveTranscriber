@@ -26,6 +26,17 @@ private final class Recorder<Value>: @unchecked Sendable {
 /// Helpers backing speaker separation: event merging for two parallel
 /// engines and speaker-aware transcript assembly.
 struct SpeakerSeparationTests {
+  private func seg(_ number: Int, _ start: TimeInterval, _ end: TimeInterval) -> DiarizedSegment {
+    DiarizedSegment(speaker: .diarized(number), audioStart: start, audioEnd: end)
+  }
+
+  private func snapshot(
+    frontier: TimeInterval, source: AudioSource? = nil,
+    _ finalized: [DiarizedSegment], open: [DiarizedSegment] = []
+  ) -> DiarizationSnapshot {
+    DiarizationSnapshot(source: source, frontier: frontier, finalized: finalized, open: open)
+  }
+
   @Test
   func activityMergerReportsOnlyAggregateTransitions() {
     let reports = Recorder<Bool>()
@@ -63,125 +74,90 @@ struct SpeakerSeparationTests {
 
   @Test
   func speakerAssignerPicksLargestOverlap() {
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 4),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 4, audioEnd: 10),
-    ]
+    let state = snapshot(frontier: 10, [seg(1, 0, 4), seg(2, 4, 10)])
 
-    // Fully inside one turn.
+    // Fully inside one diarized segment.
     #expect(
-      SpeakerAssigner.speaker(audioStart: 1, audioEnd: 3, turns: turns) == .diarized(1))
+      SpeakerAssigner.speaker(audioStart: 1, audioEnd: 3, snapshot: state) == .diarized(1))
     // Straddling both: speaker 2 covers 4...9 (5 s) vs speaker 1's 2...4 (2 s).
     #expect(
-      SpeakerAssigner.speaker(audioStart: 2, audioEnd: 9, turns: turns) == .diarized(2))
-    // No overlap at all.
-    #expect(SpeakerAssigner.speaker(audioStart: 20, audioEnd: 25, turns: turns) == nil)
+      SpeakerAssigner.speaker(audioStart: 2, audioEnd: 9, snapshot: state) == .diarized(2))
+    // Beyond the frontier: no attribution yet.
+    #expect(SpeakerAssigner.speaker(audioStart: 20, audioEnd: 25, snapshot: state) == nil)
     // Missing offsets cannot be matched.
-    #expect(SpeakerAssigner.speaker(audioStart: nil, audioEnd: 3, turns: turns) == nil)
-    #expect(SpeakerAssigner.speaker(audioStart: 1, audioEnd: nil, turns: turns) == nil)
+    #expect(SpeakerAssigner.speaker(audioStart: nil, audioEnd: 3, snapshot: state) == nil)
+    #expect(SpeakerAssigner.speaker(audioStart: 1, audioEnd: nil, snapshot: state) == nil)
   }
 
   @Test
   func speakerAssignerTieResolvesToLowestNumber() {
-    let turns = [
-      SpeakerTurn(speaker: .diarized(2), audioStart: 5, audioEnd: 10),
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 5),
-    ]
+    let state = snapshot(frontier: 10, [seg(2, 5, 10), seg(1, 0, 5)])
     // 2.5 s overlap with each side of the boundary.
     #expect(
-      SpeakerAssigner.speaker(audioStart: 2.5, audioEnd: 7.5, turns: turns) == .diarized(1))
+      SpeakerAssigner.speaker(audioStart: 2.5, audioEnd: 7.5, snapshot: state) == .diarized(1))
   }
 
   @Test
-  func speakerAssignerScopesTurnsToTheSegmentSource() {
-    // Per-source diarization: each stream's turns live on that stream's own
-    // timeline and must not label the other stream's segments.
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 10, source: .microphone),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 0, audioEnd: 10, source: .appAudio),
-    ]
-
-    #expect(
-      SpeakerAssigner.speaker(audioStart: 2, audioEnd: 6, turns: turns, scope: .microphone)
-        == .diarized(1))
-    #expect(
-      SpeakerAssigner.speaker(audioStart: 2, audioEnd: 6, turns: turns, scope: .appAudio)
-        == .diarized(2))
-    // A source whose stream was never diarized matches nothing.
-    let appOnly = [turns[1]]
-    #expect(
-      SpeakerAssigner.speaker(audioStart: 2, audioEnd: 6, turns: appOnly, scope: .microphone)
-        == nil)
+  func speakerAssignerCountsOpenSegments() {
+    // A speaker mid-turn has an open segment only; provisional labels must
+    // still bind to it.
+    let state = snapshot(frontier: 4, [], open: [seg(1, 0, 5)])
+    #expect(SpeakerAssigner.speaker(audioStart: 1, audioEnd: 3, snapshot: state) == .diarized(1))
   }
 
   @Test
-  func speakerAssignerNilScopeMatchesAnySource() {
-    // Single-engine sessions carry no source on their transcripts; the lone
-    // diarizer's turns still apply.
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 10, source: .appAudio)
-    ]
-    #expect(SpeakerAssigner.speaker(audioStart: 2, audioEnd: 6, turns: turns) == .diarized(1))
-  }
-
-  @Test
-  func speakerAssignerBindsUnmatchedSegmentsToTheNearestTurn() {
-    // The diarizer misses short/quiet utterances; once it has processed past
-    // the segment (a turn ends at or after it), the nearest turn wins.
-    let turns = [SpeakerTurn(speaker: .diarized(1), audioStart: 5, audioEnd: 10)]
-    #expect(SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, turns: turns) == .diarized(1))
-    // Overlap always beats a nearer disjoint turn.
-    let overlapping = turns + [SpeakerTurn(speaker: .diarized(2), audioStart: 0, audioEnd: 2.5)]
+  func speakerAssignerBindsUnmatchedSegmentsToTheNearestSegment() {
+    // The diarizer misses short/quiet utterances; once it has processed
+    // past the transcript, the nearest diarized segment wins.
+    let state = snapshot(frontier: 10, [seg(1, 5, 10)])
+    #expect(SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, snapshot: state) == .diarized(1))
+    // Overlap always beats a nearer disjoint segment.
+    let overlapping = snapshot(frontier: 10, [seg(1, 5, 10), seg(2, 0, 2.5)])
     #expect(
-      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, turns: overlapping) == .diarized(2))
+      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, snapshot: overlapping) == .diarized(2))
   }
 
   @Test
   func speakerAssignerFallbackWaitsForTheDiarizationFrontier() {
-    // A segment past every turn's end may still get its covering turn from
-    // the next chunk — no fallback until diarization has processed past it
-    // or the session has ended.
-    let turns = [SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 4)]
-    #expect(SpeakerAssigner.speaker(audioStart: 5, audioEnd: 7, turns: turns) == nil)
+    // A transcript past the frontier may still get its covering segment
+    // from later audio — no fallback until diarization has processed past
+    // it or the session has ended.
+    let state = snapshot(frontier: 4, [seg(1, 0, 4)])
+    #expect(SpeakerAssigner.speaker(audioStart: 5, audioEnd: 7, snapshot: state) == nil)
     #expect(
-      SpeakerAssigner.speaker(audioStart: 5, audioEnd: 7, turns: turns, sessionEnded: true)
+      SpeakerAssigner.speaker(audioStart: 5, audioEnd: 7, snapshot: state, sessionEnded: true)
         == .diarized(1))
+    let advanced = snapshot(frontier: 7, [seg(1, 0, 4)])
+    #expect(
+      SpeakerAssigner.speaker(audioStart: 5, audioEnd: 7, snapshot: advanced) == .diarized(1))
   }
 
   @Test
   func speakerAssignerFallbackIsLimitedToTheWindow() {
-    // A turn farther than the fallback window is a guess, not a match: such
-    // speech lands in the per-stream unknown-speaker bucket instead.
-    let turns = [SpeakerTurn(speaker: .diarized(1), audioStart: 100, audioEnd: 110)]
+    // A diarized segment farther than the fallback window is a guess, not a
+    // match: such speech lands in the per-stream unknown-speaker bucket.
+    let state = snapshot(frontier: 110, [seg(1, 100, 110)])
     #expect(
-      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, turns: turns, sessionEnded: true)
+      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, snapshot: state, sessionEnded: true)
         == .diarized(0))
   }
 
   @Test
-  func speakerAssignerLeavesUndiarizedStreamsAlone() {
-    // A stream with no turns at all (the microphone in hybrid mode) must
-    // keep its source label — never the unknown-speaker bucket.
-    let appTurns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 10, source: .appAudio)
-    ]
+  func speakerAssignerLeavesSilentStreamsAlone() {
+    // A diarized stream that heard no speech at all must keep its source
+    // label — never the unknown-speaker bucket.
+    let empty = snapshot(frontier: 100, [])
     #expect(
-      SpeakerAssigner.speaker(
-        audioStart: 0, audioEnd: 2, turns: appTurns, scope: .microphone, sessionEnded: true) == nil)
-    #expect(
-      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, turns: [], sessionEnded: true) == nil)
+      SpeakerAssigner.speaker(audioStart: 0, audioEnd: 2, snapshot: empty, sessionEnded: true)
+        == nil)
   }
 
   @Test
-  func speakerAssignerSumsSplitTurnsOfOneSpeaker() {
-    // One speaker's turns split across diarizer chunks should accumulate.
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 2),
-      SpeakerTurn(speaker: .diarized(1), audioStart: 3, audioEnd: 5),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 2, audioEnd: 5),
-    ]
+  func speakerAssignerSumsSplitSegmentsOfOneSpeaker() {
+    // One speaker's coverage split into several segments should accumulate.
+    let state = snapshot(frontier: 5, [seg(1, 0, 2), seg(1, 3, 5), seg(2, 2, 5)])
     // Speaker 1: 2 s + 2 s = 4 s; speaker 2: 3 s.
-    #expect(SpeakerAssigner.speaker(audioStart: 0, audioEnd: 5, turns: turns) == .diarized(1))
+    #expect(SpeakerAssigner.speaker(audioStart: 0, audioEnd: 5, snapshot: state) == .diarized(1))
   }
 
   // MARK: - Segment splitting at speaker changes
@@ -193,16 +169,13 @@ struct SpeakerSeparationTests {
   }
 
   @Test
-  func splitCutsRunsAtTheTurnBoundary() {
+  func splitCutsRunsAtTheSpeakerBoundary() {
     let runs = [
       run("こん", 0, 1), run("にちは", 1, 3),
       run("どう", 3, 4), run("も", 4, 5),
     ]
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 3),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 3, audioEnd: 5),
-    ]
-    let pieces = SpeakerAssigner.split(runs: runs, turns: turns)
+    let state = snapshot(frontier: 5, [seg(1, 0, 3), seg(2, 3, 5)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
     #expect(
       pieces == [
         .init(text: "こんにちは", audioStart: 0, audioEnd: 3, speaker: .diarized(1)),
@@ -213,30 +186,38 @@ struct SpeakerSeparationTests {
   @Test
   func splitKeepsASingleSpeakerSegmentWhole() {
     let runs = [run("ab", 0, 2), run("cd", 2, 4)]
-    // Same speaker split across diarizer chunks must not split the text.
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 2),
-      SpeakerTurn(speaker: .diarized(1), audioStart: 2, audioEnd: 4),
-    ]
-    let pieces = SpeakerAssigner.split(runs: runs, turns: turns)
+    // Same speaker across several diarized segments must not split the text.
+    let state = snapshot(frontier: 4, [seg(1, 0, 2), seg(1, 2, 4)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
     #expect(pieces == [.init(text: "abcd", audioStart: 0, audioEnd: 4, speaker: .diarized(1))])
+  }
+
+  @Test
+  func splitUsesOpenSegments() {
+    // The second speaker is still mid-turn (open segment) when the frontier
+    // passes the transcript; the split must see that coverage.
+    let runs = [run("ab", 0, 2), run("cd", 2, 4)]
+    let state = snapshot(frontier: 4.5, [seg(1, 0, 2)], open: [seg(2, 2, 4.5)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
+    #expect(
+      pieces == [
+        .init(text: "ab", audioStart: 0, audioEnd: 2, speaker: .diarized(1)),
+        .init(text: "cd", audioStart: 2, audioEnd: 4, speaker: .diarized(2)),
+      ])
   }
 
   @Test
   func splitInheritsUncoveredRunsFromTheirNeighbor() {
     let runs = [
-      run("lead", 0, 1),  // before any turn: takes the first attributed speaker
+      run("lead", 0, 1),  // before any coverage: takes the first attributed speaker
       run("one", 1, 2),
-      run("gap", 2.1, 2.9),  // between turns: sticks with the previous speaker
+      run("gap", 2.1, 2.9),  // between segments: sticks with the previous speaker
       run("two", 3, 4),
       run("(pause)", nil, nil),  // untimed: joins the previous piece
       run("more", 4, 5),
     ]
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 1, audioEnd: 2),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 3, audioEnd: 5),
-    ]
-    let pieces = SpeakerAssigner.split(runs: runs, turns: turns)
+    let state = snapshot(frontier: 5, [seg(1, 1, 2), seg(2, 3, 5)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
     #expect(
       pieces == [
         .init(text: "leadonegap", audioStart: 0, audioEnd: 2.9, speaker: .diarized(1)),
@@ -245,36 +226,16 @@ struct SpeakerSeparationTests {
   }
 
   @Test
-  func splitReturnsNilWithoutAnOverlappingTurn() {
+  func splitReturnsNilWithoutAnOverlappingSegment() {
     let runs = [run("ab", 0, 2)]
-    let turns = [SpeakerTurn(speaker: .diarized(1), audioStart: 10, audioEnd: 12)]
-    #expect(SpeakerAssigner.split(runs: runs, turns: turns) == nil)
-    #expect(SpeakerAssigner.split(runs: runs, turns: []) == nil)
+    let state = snapshot(frontier: 12, [seg(1, 10, 12)])
+    #expect(SpeakerAssigner.split(runs: runs, snapshot: state) == nil)
+    #expect(SpeakerAssigner.split(runs: runs, snapshot: snapshot(frontier: 12, [])) == nil)
     // Untimed runs alone cannot bind to anything.
-    #expect(SpeakerAssigner.split(runs: [run("x", nil, nil)], turns: turns) == nil)
+    #expect(SpeakerAssigner.split(runs: [run("x", nil, nil)], snapshot: state) == nil)
   }
 
-  @Test
-  func splitScopesTurnsToTheSegmentSource() {
-    let runs = [run("ab", 0, 2), run("cd", 2, 4)]
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 2, source: .appAudio),
-      SpeakerTurn(speaker: .diarized(2), audioStart: 2, audioEnd: 4, source: .appAudio),
-    ]
-    #expect(SpeakerAssigner.split(runs: runs, turns: turns, scope: .microphone) == nil)
-    #expect(SpeakerAssigner.split(runs: runs, turns: turns, scope: .appAudio)?.count == 2)
-  }
-
-  @Test
-  func frontierReachedRespectsTheScope() {
-    let turns = [
-      SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 10, source: .appAudio)
-    ]
-    #expect(SpeakerAssigner.frontierReached(end: 8, turns: turns, scope: .appAudio))
-    #expect(!SpeakerAssigner.frontierReached(end: 12, turns: turns, scope: .appAudio))
-    #expect(!SpeakerAssigner.frontierReached(end: 8, turns: turns, scope: .microphone))
-    #expect(SpeakerAssigner.frontierReached(end: 8, turns: turns))
-  }
+  // MARK: - Retro-labeling through the controller
 
   @MainActor
   @Test
@@ -291,10 +252,7 @@ struct SpeakerSeparationTests {
 
     controller.applyForTesting(
       session: session,
-      turns: [
-        SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 3),
-        SpeakerTurn(speaker: .diarized(2), audioStart: 3, audioEnd: 6),
-      ])
+      snapshots: [snapshot(frontier: 6, source: .appAudio, [seg(1, 0, 3), seg(2, 3, 6)])])
 
     #expect(session.segments.map(\.text) == ["こんにちは", "どうも"])
     #expect(session.segments.map(\.speaker) == ["Speaker 1", "Speaker 2"])
@@ -321,11 +279,11 @@ struct SpeakerSeparationTests {
         runs: [run("こんにちは", 0, 3), run("どうも", 3, 5)])
     ]
 
-    // Only the first covering turn has arrived; diarization has not
-    // processed past the segment yet, so it must not split.
+    // Diarization has not processed past the segment yet, so it must not
+    // split — even though a second speaker's open segment already differs.
     controller.applyForTesting(
       session: session,
-      turns: [SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 3)])
+      snapshots: [snapshot(frontier: 3, source: .appAudio, [seg(1, 0, 3)])])
 
     #expect(session.segments.count == 1)
     #expect(session.segments[0].speaker == "Speaker 1")
@@ -349,12 +307,80 @@ struct SpeakerSeparationTests {
 
     controller.applyForTesting(
       session: session,
-      turns: [
-        SpeakerTurn(speaker: .diarized(1), audioStart: 0, audioEnd: 3, source: .microphone),
-        SpeakerTurn(speaker: .diarized(2), audioStart: 3, audioEnd: 6, source: .microphone),
-      ])
+      snapshots: [snapshot(frontier: 6, source: .microphone, [seg(1, 0, 3), seg(2, 3, 6)])])
 
     #expect(session.segments.count == 1)
+    #expect(session.segments[0].speaker == "Mic")
+  }
+
+  @MainActor
+  @Test
+  func relabelScopesSnapshotsToTheSegmentSource() {
+    // Per-source diarization: each stream's snapshot lives on that stream's
+    // own timeline and must not label the other stream's segments.
+    let controller = RecordingController()
+    let session = TranscriptSession(
+      name: "Scoped", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      localeIdentifier: "ja-JP", sourceDescription: "Mic + App")
+    session.segments = [
+      TranscriptSegment(
+        text: "mic side", date: session.startedAt,
+        audioStart: 0, audioEnd: 4, speaker: nil, source: .microphone),
+      TranscriptSegment(
+        text: "app side", date: session.startedAt.addingTimeInterval(1),
+        audioStart: 0, audioEnd: 4, speaker: nil, source: .appAudio),
+    ]
+
+    controller.applyForTesting(
+      session: session,
+      snapshots: [
+        snapshot(frontier: 5, source: .microphone, [seg(1, 0, 5)]),
+        snapshot(frontier: 5, source: .appAudio, [seg(2, 0, 5)]),
+      ])
+
+    #expect(session.segments.map(\.speaker) == ["Mic Speaker 1", "App Speaker 2"])
+  }
+
+  @MainActor
+  @Test
+  func relabelAppliesTheLoneSnapshotToUnsourcedSegments() {
+    // Single-engine sessions carry no source on their transcripts; the lone
+    // diarizer's snapshot still applies.
+    let controller = RecordingController()
+    let session = TranscriptSession(
+      name: "Lone", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      localeIdentifier: "ja-JP", sourceDescription: "App")
+    session.segments = [
+      TranscriptSegment(
+        text: "hello", date: session.startedAt, audioStart: 0, audioEnd: 4, speaker: nil)
+    ]
+
+    controller.applyForTesting(
+      session: session,
+      snapshots: [snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)])])
+
+    #expect(session.segments[0].speaker == "Speaker 1")
+  }
+
+  @MainActor
+  @Test
+  func relabelLeavesUndiarizedStreamsAlone() {
+    // A stream with no snapshot at all (the microphone in hybrid mode) must
+    // keep its provisional source label.
+    let controller = RecordingController()
+    let session = TranscriptSession(
+      name: "Hybrid", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      localeIdentifier: "ja-JP", sourceDescription: "Mic + App")
+    session.segments = [
+      TranscriptSegment(
+        text: "mic side", date: session.startedAt,
+        audioStart: 0, audioEnd: 4, speaker: "Mic", source: .microphone)
+    ]
+
+    controller.applyForTesting(
+      session: session,
+      snapshots: [snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)])])
+
     #expect(session.segments[0].speaker == "Mic")
   }
 
