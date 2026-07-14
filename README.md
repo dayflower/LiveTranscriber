@@ -111,6 +111,7 @@ macOS attributes the permission grants to the app.
 | Markdown | `.md` | Header block + one paragraph per entry, optional `**[HH:mm:ss]**` prefix; speakers as a bold `**Mic:**` marker |
 | Plain text | `.txt` | Same header block + one line per entry; speakers as an IRC-style `<Mic>` marker |
 | JSON Lines | `.jsonl` | One JSON object per line (optional `speaker` field); best for further processing |
+| YAML | `.yaml` | Metadata keys + a `segments` list; same fidelity as JSON Lines but human-readable |
 
 Files are written incrementally while recording, so even a crash or power
 failure loses nothing that was already finalized. With diarization, speaker

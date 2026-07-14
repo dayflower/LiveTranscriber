@@ -11,7 +11,8 @@ let package = Package(
     .executable(name: "LiveTranscriber", targets: ["LiveTranscriberApp"])
   ],
   dependencies: [
-    .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.0")
+    .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.0"),
+    .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.0"),
   ],
   targets: [
     .target(
@@ -26,7 +27,10 @@ let package = Package(
     ),
     .executableTarget(
       name: "LiveTranscriberApp",
-      dependencies: ["LiveTranscriberCore"],
+      dependencies: [
+        "LiveTranscriberCore",
+        .product(name: "Yams", package: "Yams"),
+      ],
       swiftSettings: [
         .swiftLanguageMode(.v6),
         .treatAllWarnings(as: .error),

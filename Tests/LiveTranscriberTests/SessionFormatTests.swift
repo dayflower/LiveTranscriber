@@ -117,6 +117,20 @@ struct SessionFormatTests {
         {"date":"2026-07-11T09:55:20+09:00","text":"Second one.","type":"segment"}
 
         """
+    case .yaml:
+      legacy = """
+        name: Legacy session
+        started: 2026-07-11T09:55:00+09:00
+        locale: ja-JP
+        timestamps: true
+        generator: live-transcriber
+        segments:
+        - date: 2026-07-11T09:55:12+09:00
+          text: "Note: remember this."
+        - date: 2026-07-11T09:55:20+09:00
+          text: Second one.
+
+        """
     }
 
     let restored = try formatID.format.read(legacy)

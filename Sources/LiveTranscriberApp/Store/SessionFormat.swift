@@ -7,6 +7,7 @@ enum SessionFormatID: String, CaseIterable, Identifiable, Sendable {
   case markdown
   case plainText
   case jsonl
+  case yaml
 
   var id: String { rawValue }
 
@@ -15,6 +16,7 @@ enum SessionFormatID: String, CaseIterable, Identifiable, Sendable {
     case .markdown: "md"
     case .plainText: "txt"
     case .jsonl: "jsonl"
+    case .yaml: "yaml"
     }
   }
 
@@ -23,6 +25,7 @@ enum SessionFormatID: String, CaseIterable, Identifiable, Sendable {
     case .markdown: String(localized: "Markdown")
     case .plainText: String(localized: "Plain text")
     case .jsonl: String(localized: "JSON Lines")
+    case .yaml: String(localized: "YAML")
     }
   }
 
@@ -35,6 +38,7 @@ enum SessionFormatID: String, CaseIterable, Identifiable, Sendable {
     case .markdown: MarkdownSessionFormat()
     case .plainText: PlainTextSessionFormat()
     case .jsonl: JSONLSessionFormat()
+    case .yaml: YAMLSessionFormat()
     }
   }
 }

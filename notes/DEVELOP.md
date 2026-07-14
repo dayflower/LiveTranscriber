@@ -77,7 +77,7 @@ Two targets plus tests:
   | --- | --- |
   | `AppModel.swift` | Root composition; wires recording ↔ file writing ↔ store; sidebar selection; export |
   | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `AutoStopMonitor`, `SilenceTracker`, `SpeakerAssigner` (turn → segment overlap matching) |
-  | `Store/` | `SessionStore` (folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL implementations |
+  | `Store/` | `SessionStore` (folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL/YAML implementations |
   | `Calendar/` | `CalendarService` (EventKit) and the pure `CalendarMatcher` heuristic |
   | `Settings/AppSettings.swift` | UserDefaults-backed preferences |
   | `Views/` | `MainWindow` (NavigationSplitView), transcript view, toolbar, new-session sheet, menu bar, settings |
@@ -185,7 +185,7 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
 ## Sessions & persistence
 
 - The save folder **is** the history. `SessionStore` scans it for
-  `.md`/`.txt`/`.jsonl`, parses each file's header into a sidebar summary
+  `.md`/`.txt`/`.jsonl`/`.yaml`, parses each file's header into a sidebar summary
   (unreadable/foreign files are skipped), and re-scans on directory events
   (`DispatchSource`, debounced). Full transcripts load on selection.
 - `SessionFileWriter` writes the header once, appends each finalized segment
@@ -193,13 +193,15 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   session end atomically rewrites the whole file with complete frontmatter
   (end time) — also applying any rename. In-place header patching is
   deliberately avoided.
-- All three formats round-trip (see `SessionFormatTests`); JSONL keeps the
-  highest fidelity (ISO dates + audio offsets). Markdown/plain text restore
-  segment times from the `[HH:mm:ss]` prefixes, anchored to the session start
-  (midnight-crossing rolls to the next day).
-- Per-segment speakers serialize as an optional `speaker` JSONL field, a bold
-  `**Mic:**` marker in Markdown, and an IRC-style `<Mic>` marker in plain
-  text. Readers fall back to a `nil` speaker for pre-feature files; a charset
+- All formats round-trip (see `SessionFormatTests`); JSONL and YAML keep the
+  highest fidelity (ISO dates + audio offsets). YAML (via Yams) writes
+  metadata as top-level keys and appends `segments` sequence items at column
+  0, so the streaming file stays valid YAML after every append. Markdown/plain
+  text restore segment times from the `[HH:mm:ss]` prefixes, anchored to the
+  session start (midnight-crossing rolls to the next day).
+- Per-segment speakers serialize as an optional `speaker` field in JSONL and
+  YAML, a bold `**Mic:**` marker in Markdown, and an IRC-style `<Mic>` marker
+  in plain text. Readers fall back to a `nil` speaker for pre-feature files; a charset
   and length check on the parsed label keeps ordinary text that resembles the
   markers from being misread. With diarization, turns can arrive after a
   segment was appended to the streaming file — those labels only reach disk
