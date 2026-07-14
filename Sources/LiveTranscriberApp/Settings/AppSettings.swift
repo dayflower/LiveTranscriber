@@ -105,6 +105,13 @@ final class AppSettings {
     didSet { Self.defaults.set(diarizerBackend.rawValue, forKey: "diarizerBackend") }
   }
 
+  /// CoreML compute units for the diarization models. `.auto` defers to each
+  /// backend; explicit values (e.g. Neural Engine) trade throughput for
+  /// lower CPU load.
+  var diarizerCompute: DiarizerCompute {
+    didSet { Self.defaults.set(diarizerCompute.rawValue, forKey: "diarizerCompute") }
+  }
+
   /// Speakers registered for diarization enrollment (Settings → Speakers).
   /// Enrollment samples live in `SpeakerProfileStore` keyed by profile ID.
   var speakerProfiles: [SpeakerProfile] {
@@ -179,6 +186,8 @@ final class AppSettings {
 
     diarizerBackend =
       d.string(forKey: "diarizerBackend").flatMap(DiarizerBackend.init) ?? .sortformer
+    diarizerCompute =
+      d.string(forKey: "diarizerCompute").flatMap(DiarizerCompute.init) ?? .auto
     speakerProfiles =
       d.data(forKey: "speakerProfiles")
       .flatMap { try? JSONDecoder().decode([SpeakerProfile].self, from: $0) } ?? []

@@ -134,6 +134,7 @@ public actor CapturePipeline {
       diarizers = try await SpeakerDiarizer.prepare(
         sources: sources,
         backend: configuration.diarizerBackend,
+        compute: configuration.diarizerCompute,
         minTurnSeconds: configuration.diarizerMinTurnSeconds,
         enrolledSpeakers: configuration.enrolledSpeakers,
         emit: { continuation.yield($0) })

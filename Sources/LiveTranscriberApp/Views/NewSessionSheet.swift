@@ -410,6 +410,7 @@ struct NewSessionSheet: View {
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds,
       diarizerBackend: settings.diarizerBackend,
+      diarizerCompute: settings.diarizerCompute,
       enrolledSpeakers: enrolledSpeakers(),
       diarizerMinTurnSeconds: settings.diarizerMinTurnSeconds
     )

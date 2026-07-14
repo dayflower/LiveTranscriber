@@ -124,6 +124,20 @@ private struct RecordingSettings: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
+        Picker("Compute units", selection: $settings.diarizerCompute) {
+          Text("Automatic").tag(DiarizerCompute.auto)
+          Text("CPU only").tag(DiarizerCompute.cpuOnly)
+          Text("CPU + GPU").tag(DiarizerCompute.cpuAndGPU)
+          Text("CPU + Neural Engine").tag(DiarizerCompute.cpuAndNeuralEngine)
+          Text("All").tag(DiarizerCompute.all)
+        }
+
+        Text(
+          "Where the diarization model runs. Automatic lets each model choose. Adding the Neural Engine or GPU can move compute off the CPU to lower load, though for lightweight models (LS-EEND) the CPU alone is often faster — measure before switching."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
         LabeledContent("Minimum turn duration") {
           Slider(value: $settings.diarizerMinTurnSeconds, in: 0.2...3, step: 0.1) {
             EmptyView()

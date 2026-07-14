@@ -129,8 +129,12 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     Float32, running the selected FluidAudio backend, and emitting
     `.diarization` snapshot events. The model is a Settings value
     (`DiarizerBackend`, carried in `CaptureConfiguration`): `.sortformer`
-    or `.lsEEND`, both frame-streaming `Diarizer`s fed as audio arrives,
-    with their `DiarizerTimelineUpdate`s assembled into
+    or `.lsEEND`, both frame-streaming `Diarizer`s fed as audio arrives. A
+    parallel `DiarizerCompute` setting picks the CoreML compute units at
+    model load (`.auto` defers to each backend — Sortformer resolves to all
+    engines, LS-EEND to CPU only — while the explicit cases override it); it
+    maps to `MLComputeUnits` in `SpeakerDiarizer.makeDiarizer`. Their
+    `DiarizerTimelineUpdate`s are assembled into
     `DiarizationSnapshot`s by `DiarizationAssembler`. Each snapshot is the
     stream's authoritative state and supersedes the previous one: an
     explicit `frontier` (attribution at or before it is final), the full

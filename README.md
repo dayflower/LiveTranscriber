@@ -115,7 +115,9 @@ macOS attributes the permission grants to the app.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
 5. Settings (⌘,) hold the save folder, file format, timestamps, the
-   auto-stop behavior, the diarization model, the minimum speaker-turn
+   auto-stop behavior, the diarization model, the compute units it runs on
+   (Automatic, or pin it to CPU only / CPU + GPU / CPU + Neural Engine / all,
+   trading throughput for lower CPU load), the minimum speaker-turn
    duration for diarization
    (shorter turns are ignored; lower it to pick up brief interjections at the
    cost of less reliable speaker attribution), registered speakers for

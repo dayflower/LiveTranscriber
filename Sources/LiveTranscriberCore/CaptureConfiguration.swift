@@ -32,6 +32,22 @@ public enum DiarizerBackend: String, CaseIterable, Sendable {
   case lsEEND = "ls-eend"
 }
 
+/// CoreML compute units for the diarization models, mirroring `MLComputeUnits`
+/// (which has no GPU-only or Neural-Engine-only mode — those accelerators are
+/// always paired with the CPU). `.auto` keeps each backend's built-in default
+/// (Sortformer resolves to all engines, LS-EEND to CPU only); the explicit
+/// cases override it — e.g. `.cpuAndNeuralEngine` moves compute off the CPU
+/// onto the Neural Engine, trading throughput for lower CPU load. The core
+/// layer maps these to `MLComputeUnits` (`.auto` maps to "let the backend
+/// decide").
+public enum DiarizerCompute: String, CaseIterable, Sendable {
+  case auto
+  case cpuOnly = "cpu"
+  case cpuAndGPU = "cpu+gpu"
+  case cpuAndNeuralEngine = "cpu+ane"
+  case all
+}
+
 /// A speaker to pre-enroll into every diarizer at session start, so their
 /// speech is labeled by name instead of an anonymous speaker number.
 public struct EnrolledSpeaker: Sendable {
@@ -91,6 +107,10 @@ public struct CaptureConfiguration: Sendable {
   /// Diarization model to run when the separation mode diarizes.
   public var diarizerBackend: DiarizerBackend
 
+  /// CoreML compute units for the diarization models. `.auto` keeps each
+  /// backend's default; explicit values trade throughput for lower CPU load.
+  public var diarizerCompute: DiarizerCompute
+
   /// Speakers pre-enrolled into every diarized stream. Sortformer has four
   /// speaker slots per stream; enrolled speakers occupy them, leaving fewer
   /// for unknown voices.
@@ -116,6 +136,7 @@ public struct CaptureConfiguration: Sendable {
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
     diarizerBackend: DiarizerBackend = .sortformer,
+    diarizerCompute: DiarizerCompute = .auto,
     enrolledSpeakers: [EnrolledSpeaker] = [],
     diarizerMinTurnSeconds: TimeInterval = 1,
     captureFrameRate: Int = 10
@@ -130,6 +151,7 @@ public struct CaptureConfiguration: Sendable {
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
     self.diarizerBackend = diarizerBackend
+    self.diarizerCompute = diarizerCompute
     self.enrolledSpeakers = enrolledSpeakers
     self.diarizerMinTurnSeconds = diarizerMinTurnSeconds
     self.captureFrameRate = captureFrameRate

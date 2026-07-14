@@ -1,4 +1,5 @@
 import AVFAudio
+import CoreML
 import FluidAudio
 import Foundation
 
@@ -83,6 +84,7 @@ actor SpeakerDiarizer {
   static func prepare(
     sources: [AudioSource],
     backend: DiarizerBackend,
+    compute: DiarizerCompute = .auto,
     minTurnSeconds: TimeInterval,
     enrolledSpeakers: [EnrolledSpeaker] = [],
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
@@ -90,7 +92,8 @@ actor SpeakerDiarizer {
     emit(.info("Preparing speaker-diarization models…"))
     var diarizers: [AudioSource: SpeakerDiarizer] = [:]
     for source in sources {
-      let loaded = try await makeDiarizer(backend, minTurnSeconds: minTurnSeconds, emit: emit)
+      let loaded = try await makeDiarizer(
+        backend, compute: compute, minTurnSeconds: minTurnSeconds, emit: emit)
       let names = enroll(enrolledSpeakers, into: loaded, emit: emit)
       diarizers[source] = SpeakerDiarizer(
         diarizer: loaded, source: source, enrolledNames: names, emit: emit)
@@ -131,15 +134,21 @@ actor SpeakerDiarizer {
 
   private static func makeDiarizer(
     _ backend: DiarizerBackend,
+    compute: DiarizerCompute,
     minTurnSeconds: TimeInterval,
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
   ) async throws -> any Diarizer {
+    // `.auto` passes `nil` so each backend keeps its own default resolution
+    // (Sortformer → all engines, LS-EEND → CPU only).
+    let computeUnits = computeUnits(compute)
     switch backend {
     case .sortformer:
       // `.default` carries no model variant, so name one explicitly;
       // fastV2_1 is the low-latency streaming set.
       let config = SortformerConfig.fastV2_1
-      let models = try await SortformerModels.loadFromHuggingFace(config: config) { progress in
+      let models = try await SortformerModels.loadFromHuggingFace(
+        config: config, computeUnits: computeUnits
+      ) { progress in
         emit(.modelDownload(progress: progress.fractionCompleted))
       }
       let diarizer = SortformerDiarizer(
@@ -149,7 +158,9 @@ actor SpeakerDiarizer {
       return diarizer
 
     case .lsEEND:
-      let model = try await LSEENDModel.loadFromHuggingFace { progress in
+      let model = try await LSEENDModel.loadFromHuggingFace(
+        computeUnits: computeUnits ?? .cpuOnly
+      ) { progress in
         emit(.modelDownload(progress: progress.fractionCompleted))
       }
       // Frame duration and speaker count are overwritten from the model's
@@ -159,6 +170,18 @@ actor SpeakerDiarizer {
         model: model,
         timelineConfig: timelineConfig(
           .default(numSpeakers: 1, frameDurationSeconds: 0.1), minTurnSeconds: minTurnSeconds))
+    }
+  }
+
+  /// Maps the app-level selection to CoreML compute units; `.auto` returns
+  /// `nil` to defer to the backend's own default.
+  private static func computeUnits(_ compute: DiarizerCompute) -> MLComputeUnits? {
+    switch compute {
+    case .auto: return nil
+    case .cpuOnly: return .cpuOnly
+    case .cpuAndGPU: return .cpuAndGPU
+    case .cpuAndNeuralEngine: return .cpuAndNeuralEngine
+    case .all: return .all
     }
   }
 
