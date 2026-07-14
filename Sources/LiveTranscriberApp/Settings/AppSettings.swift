@@ -53,6 +53,12 @@ final class AppSettings {
     didSet { Self.defaults.set(transcriptEntrySpacing, forKey: "transcriptEntrySpacing") }
   }
 
+  /// Tint each transcript row with its speaker's color (badges are always
+  /// colored; this extends the color to the row background).
+  var speakerRowTintEnabled: Bool {
+    didSet { Self.defaults.set(speakerRowTintEnabled, forKey: "speakerRowTintEnabled") }
+  }
+
   /// Applications listed before the rest in the new-session sheet's
   /// app-audio picker. Kept sorted by name; add via `addPriorityApp`.
   var priorityApps: [PriorityApp] {
@@ -136,6 +142,7 @@ final class AppSettings {
     transcriptFontSize = d.object(forKey: "transcriptFontSize") as? Double ?? 13
     transcriptLineSpacing = d.object(forKey: "transcriptLineSpacing") as? Double ?? 0
     transcriptEntrySpacing = d.object(forKey: "transcriptEntrySpacing") as? Double ?? 10
+    speakerRowTintEnabled = d.object(forKey: "speakerRowTintEnabled") as? Bool ?? true
     priorityApps =
       (d.data(forKey: "priorityApps")
       .flatMap { try? JSONDecoder().decode([PriorityApp].self, from: $0) } ?? [])

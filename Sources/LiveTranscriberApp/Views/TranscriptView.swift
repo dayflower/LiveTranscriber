@@ -10,6 +10,7 @@ struct TranscriptView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
+        let speakerColors = speakerColors
         LazyVStack(alignment: .leading, spacing: model.settings.transcriptEntrySpacing) {
           ForEach(session.segments) { segment in
             SegmentRow(
@@ -17,7 +18,9 @@ struct TranscriptView: View {
               showsTimestamp: session.timestampsEnabled,
               font: model.settings.transcriptFont,
               captionFont: model.settings.transcriptCaptionFont,
-              lineSpacing: model.settings.transcriptLineSpacing
+              lineSpacing: model.settings.transcriptLineSpacing,
+              speakerColor: segment.speaker.flatMap { speakerColors[$0] },
+              rowTintEnabled: model.settings.speakerRowTintEnabled
             )
           }
           ForEach(session.volatiles.filter { !$0.text.isEmpty }) { volatile in
@@ -25,7 +28,9 @@ struct TranscriptView: View {
               Image(systemName: "ellipsis")
                 .foregroundStyle(.tertiary)
               if let speaker = volatile.speaker {
-                SpeakerBadge(speaker: speaker, font: model.settings.transcriptCaptionFont)
+                SpeakerBadge(
+                  speaker: speaker, font: model.settings.transcriptCaptionFont,
+                  color: speakerColors[speaker])
               }
               Text(volatile.text)
                 .font(model.settings.transcriptFont)
@@ -33,6 +38,9 @@ struct TranscriptView: View {
                 .foregroundStyle(.secondary)
                 .italic()
             }
+            .speakerRowTint(
+              model.settings.speakerRowTintEnabled
+                ? volatile.speaker.flatMap { speakerColors[$0] } : nil)
           }
           Color.clear
             .frame(height: 1)
@@ -57,6 +65,22 @@ struct TranscriptView: View {
 
   private let bottomAnchorID = "transcript-bottom"
 
+  /// Colors assigned by first appearance in the session, cycling through
+  /// `speakerPalette`. Derived on each render so retroactive diarization
+  /// relabeling keeps colors consistent with the current labels.
+  private var speakerColors: [String: Color] {
+    var map: [String: Color] = [:]
+    let speakers = session.segments.compactMap(\.speaker) + session.volatiles.compactMap(\.speaker)
+    for speaker in speakers where map[speaker] == nil {
+      map[speaker] = Self.speakerPalette[map.count % Self.speakerPalette.count]
+    }
+    return map
+  }
+
+  private static let speakerPalette: [Color] = [
+    .blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown,
+  ]
+
   private var subtitle: String {
     var parts = [
       session.startedAt.formatted(.dateTime.month().day().hour().minute()),
@@ -78,6 +102,8 @@ private struct SegmentRow: View {
   let font: Font
   let captionFont: Font
   let lineSpacing: Double
+  let speakerColor: Color?
+  let rowTintEnabled: Bool
 
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -87,23 +113,45 @@ private struct SegmentRow: View {
           .foregroundStyle(.secondary)
       }
       if let speaker = segment.speaker {
-        SpeakerBadge(speaker: speaker, font: captionFont)
+        SpeakerBadge(speaker: speaker, font: captionFont, color: speakerColor)
       }
       Text(segment.text)
         .font(font)
         .lineSpacing(lineSpacing)
         .textSelection(.enabled)
     }
+    .speakerRowTint(rowTintEnabled ? speakerColor : nil)
   }
 }
 
 struct SpeakerBadge: View {
   let speaker: String
   let font: Font
+  var color: Color?
 
   var body: some View {
-    Text(speaker)
-      .font(font.bold())
-      .foregroundStyle(.secondary)
+    if let color {
+      Text(speaker)
+        .font(font.bold())
+        .foregroundStyle(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(color.opacity(0.16), in: Capsule())
+    } else {
+      Text(speaker)
+        .font(font.bold())
+        .foregroundStyle(.secondary)
+    }
+  }
+}
+
+extension View {
+  /// Full-width row background in the speaker's color; layout (padding) is
+  /// applied unconditionally so toggling the tint does not shift text.
+  fileprivate func speakerRowTint(_ color: Color?) -> some View {
+    frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
+      .background((color ?? .clear).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
   }
 }

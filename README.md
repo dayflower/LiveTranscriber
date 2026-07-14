@@ -27,8 +27,10 @@ Everything runs on your Mac using Apple's on-device speech recognition
   application audio. When a speaker change lands inside one finalized
   entry, the entry is split at the change so each part carries its own
   speaker (labels can rearrange for a few seconds after the text appears —
-  diarization runs slightly behind transcription). Chosen per session when
-  starting a recording; off by default.
+  diarization runs slightly behind transcription). Each speaker gets its own
+  badge color in the transcript window, optionally extended to the row
+  background (Settings → Appearance). Chosen per session when starting a
+  recording; off by default.
 - **File saving, chosen per session**: when starting a session, decide whether
   the transcript is written to the save folder as it is recorded — Markdown,
   plain text, or JSON Lines. Session name, start/end times,
@@ -101,8 +103,9 @@ macOS attributes the permission grants to the app.
    auto-stop behavior, the minimum speaker-turn duration for diarization
    (shorter turns are ignored; lower it to pick up brief interjections at the
    cost of less reliable speaker attribution), priority applications for the
-   application picker, and the transcript font, size, and spacing (between
-   wrapped lines and between entries).
+   application picker, the transcript font, size, and spacing (between
+   wrapped lines and between entries), and whether transcript rows are
+   tinted with the speaker color.
 
 ## Transcript files
 

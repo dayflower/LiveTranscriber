@@ -257,6 +257,14 @@ private struct AppearanceSettings: View {
         Stepper(value: $settings.transcriptEntrySpacing, in: 0...40, step: 1) {
           LabeledContent("Entry spacing", value: "\(Int(settings.transcriptEntrySpacing)) pt")
         }
+
+        Toggle("Tint rows with the speaker color", isOn: $settings.speakerRowTintEnabled)
+
+        Text(
+          "Speaker badges are always colored per speaker; this extends the color to the row background."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
 
       Section("Preview") {
