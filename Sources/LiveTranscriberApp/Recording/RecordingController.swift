@@ -206,6 +206,25 @@ final class RecordingController {
 
   private func applyTranscript(_ result: TranscriptResult) {
     guard let session = liveSession else { return }
+    DiarizationDebug.log(
+      """
+      transcript \(result.isFinal ? "final" : "volatile") \
+      source=\(result.source.map(String.init(describing:)) ?? "-") \
+      \(DiarizationDebug.time(result.audioStart))-\(DiarizationDebug.time(result.audioEnd)) \
+      stamped=\(result.speaker.map(String.init(describing:)) ?? "-") \
+      text=\(result.text.debugDescription)
+      """)
+    if result.isFinal, !result.runs.isEmpty, DiarizationDebug.isEnabled {
+      // Per-run timings are what `split` cuts on, so their bias against the
+      // diarizer's segments is the thing to compare. Contiguous runs (no
+      // gaps at real pauses) mean the recognizer spreads characters over
+      // silence rather than timing them tightly.
+      DiarizationDebug.log(
+        "runs "
+          + result.runs.map {
+            "\($0.text)@\(DiarizationDebug.time($0.audioStart))-\(DiarizationDebug.time($0.audioEnd))"
+          }.joined(separator: " "))
+    }
     // Volatiles are keyed per engine: by the stamped speaker label, or by
     // the source when the diarizer attributes segments instead. The key
     // holds the line in place while the displayed speaker follows the

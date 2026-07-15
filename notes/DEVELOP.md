@@ -174,6 +174,15 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     (e.g. mic echo in a meeting app) becomes two speakers, unless the
     person is enrolled (see below), which unifies them under one name.
     `stop()` flushes the diarizer tails before finishing the event stream.
+    **Debugging attribution**: launch with `LT_DIARIZATION_DEBUG=1` (e.g.
+    `LT_DIARIZATION_DEBUG=1 make run`) to trace the timeline and the
+    assignment it drives to stderr (`DiarizationDebug`). Lines interleave
+    the diarizer's raw slot `update`s, the emitted `snapshot`s (throttled;
+    compare against the updates to tell a mis-attributing model apart from
+    a dropped correction), each `transcript` result with its audio
+    offsets, and the `live` / `final` / `split` decisions with their
+    overlap breakdowns — enough to tell a timeline shift from an overlap
+    mismatch.
     **Speaker enrollment**: profiles registered in Settings → Speakers
     (name + a 5–15 s voice sample recorded via `SpeakerSampleRecorder`,
     stored as 16 kHz WAV by `SpeakerProfileStore` — the deliberate

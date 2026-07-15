@@ -244,14 +244,49 @@ actor SpeakerDiarizer {
   }
 
   private func emitSnapshot(from update: DiarizerTimelineUpdate?, force: Bool = false) {
+    let newlyFinalized = (update?.finalizedSegments ?? []).map(Self.interval)
+    let open = (update?.tentativeSegments ?? []).map(Self.interval)
+    let frontier = frontier()
+    logUpdate(newlyFinalized: newlyFinalized, open: open, frontier: frontier, force: force)
     let snapshot = assembler.snapshot(
-      finalized: (update?.finalizedSegments ?? []).map(Self.interval),
-      open: (update?.tentativeSegments ?? []).map(Self.interval),
-      frontier: frontier(),
+      finalized: newlyFinalized,
+      open: open,
+      frontier: frontier,
       source: source,
       force: force
     )
-    if let snapshot { emit(.diarization(snapshot)) }
+    if let snapshot {
+      DiarizationDebug.log(
+        """
+        snapshot \(source) frontier=\(DiarizationDebug.time(snapshot.frontier)) \
+        final=[\(DiarizationDebug.describe(snapshot.finalized))] \
+        open=[\(DiarizationDebug.describe(snapshot.open))]
+        """)
+      emit(.diarization(snapshot))
+    }
+  }
+
+  /// The diarizer's own view, in raw slots and before the assembler's
+  /// throttle — tells apart a model that mis-attributes from an assembler or
+  /// throttle that drops the correction.
+  private func logUpdate(
+    newlyFinalized: [DiarizationAssembler.Interval], open: [DiarizationAssembler.Interval],
+    frontier: TimeInterval, force: Bool
+  ) {
+    guard DiarizationDebug.isEnabled else { return }
+    let slots = { (intervals: [DiarizationAssembler.Interval]) -> String in
+      intervals.isEmpty
+        ? "-"
+        : intervals.map {
+          "slot\($0.slot)@\(DiarizationDebug.time($0.start))-\(DiarizationDebug.time($0.end))"
+        }.joined(separator: " ")
+    }
+    DiarizationDebug.log(
+      """
+      update \(source) frontier=\(DiarizationDebug.time(frontier)) \
+      frames=\(diarizer.numFramesProcessed) \
+      newFinal=[\(slots(newlyFinalized))] open=[\(slots(open))]\(force ? " force" : "")
+      """)
   }
 
   /// Attribution of audio at or before this offset is final. The models

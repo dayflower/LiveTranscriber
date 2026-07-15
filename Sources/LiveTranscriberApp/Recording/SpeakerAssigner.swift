@@ -35,8 +35,17 @@ enum SpeakerAssigner {
     let segments = snapshot.finalized + snapshot.open
     guard !segments.isEmpty else { return nil }
 
-    if let winner = overlapWinner(start: start, end: end, in: segments) { return winner }
-    guard sessionEnded || snapshot.frontier >= end else { return nil }
+    if let winner = overlapWinner(start: start, end: end, in: segments, context: "final") {
+      return winner
+    }
+    guard sessionEnded || snapshot.frontier >= end else {
+      DiarizationDebug.log(
+        """
+        final \(DiarizationDebug.time(start))-\(DiarizationDebug.time(end)) no overlap, \
+        waiting for frontier=\(DiarizationDebug.time(snapshot.frontier))
+        """)
+      return nil
+    }
 
     var nearest: (label: SpeakerLabel, gap: TimeInterval)?
     for segment in segments {
@@ -48,7 +57,14 @@ enum SpeakerAssigner {
         nearest = (segment.speaker, gap)
       }
     }
-    return nearest?.label ?? .diarized(0)
+    let fallback = nearest?.label ?? .diarized(0)
+    DiarizationDebug.log(
+      """
+      final \(DiarizationDebug.time(start))-\(DiarizationDebug.time(end)) no overlap, \
+      nearest=\(nearest.map { "\($0.label) gap=\(DiarizationDebug.time($0.gap))" } ?? "none") \
+      -> \(fallback)\(sessionEnded ? " sessionEnded" : "")
+      """)
+    return fallback
   }
 
   /// Best current label for an in-progress (volatile) stretch: pure overlap,
@@ -58,13 +74,14 @@ enum SpeakerAssigner {
     audioStart: TimeInterval?, audioEnd: TimeInterval?, snapshot: DiarizationSnapshot
   ) -> SpeakerLabel? {
     guard let start = audioStart, let end = audioEnd, end > start else { return nil }
-    return overlapWinner(start: start, end: end, in: snapshot.finalized + snapshot.open)
+    return overlapWinner(
+      start: start, end: end, in: snapshot.finalized + snapshot.open, context: "live")
   }
 
   /// The speaker whose segments overlap `[start, end]` the longest; ties
   /// resolve to the lowest speaker number for determinism.
   private static func overlapWinner(
-    start: TimeInterval, end: TimeInterval, in segments: [DiarizedSegment]
+    start: TimeInterval, end: TimeInterval, in segments: [DiarizedSegment], context: String
   ) -> SpeakerLabel? {
     var overlaps: [SpeakerLabel: TimeInterval] = [:]
     for segment in segments {
@@ -73,10 +90,24 @@ enum SpeakerAssigner {
         overlaps[segment.speaker, default: 0] += overlap
       }
     }
-    return overlaps.min { lhs, rhs in
+    let winner = overlaps.min { lhs, rhs in
       if lhs.value != rhs.value { return lhs.value > rhs.value }
       return rank(of: lhs.key) < rank(of: rhs.key)
     }?.key
+    if DiarizationDebug.isEnabled {
+      let breakdown =
+        overlaps.isEmpty
+        ? "-"
+        : overlaps.sorted { rank(of: $0.key) < rank(of: $1.key) }
+          .map { "\($0.key)=\(DiarizationDebug.time($0.value))" }
+          .joined(separator: " ")
+      DiarizationDebug.log(
+        """
+        \(context) \(DiarizationDebug.time(start))-\(DiarizationDebug.time(end)) \
+        overlaps=[\(breakdown)] -> \(winner.map(String.init(describing:)) ?? "none")
+        """)
+    }
+    return winner
   }
 
   /// One stretch of a segment attributed to a single speaker, produced by
@@ -149,6 +180,12 @@ enum SpeakerAssigner {
           ))
       }
     }
+    DiarizationDebug.log(
+      "split -> "
+        + pieces.map {
+          "\($0.speaker)@\(DiarizationDebug.time($0.audioStart))-"
+            + "\(DiarizationDebug.time($0.audioEnd)) \($0.text.debugDescription)"
+        }.joined(separator: " | "))
     return pieces
   }
 
