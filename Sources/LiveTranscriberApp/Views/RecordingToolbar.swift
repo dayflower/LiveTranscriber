@@ -111,9 +111,8 @@ private struct SpeechActivityIndicator: View {
   }
 }
 
-/// Small per-source input-level indicator. Speech RMS rarely exceeds ~0.3, so
-/// the value is scaled up for a useful visual range. Clicking it opens a gain
-/// slider for the source.
+/// Small per-source input-level indicator. Clicking it opens a gain slider for
+/// the source.
 private struct LevelMeter: View {
   let source: AudioSource
   let level: Float
@@ -126,17 +125,7 @@ private struct LevelMeter: View {
     Button {
       showingGain = true
     } label: {
-      HStack(spacing: 4) {
-        Image(systemName: icon)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Gauge(value: min(1, Double(level) * 3)) {
-          EmptyView()
-        }
-        .gaugeStyle(.accessoryLinearCapacity)
-        .tint(.green)
-        .frame(width: 50)
-      }
+      InputLevelGauge(level: level, icon: icon, width: 50)
     }
     .buttonStyle(.plain)
     .help(String(localized: "\(name) level — click to adjust the input gain"))

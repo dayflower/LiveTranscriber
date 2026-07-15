@@ -355,20 +355,8 @@ private struct AddSpeakerSheet: View {
         }
         .tint(recorder.isRecording ? .red : nil)
 
-        // Mirrors the toolbar's input-level meter: speech RMS rarely
-        // exceeds ~0.3, so the value is scaled up for a useful range.
-        HStack(spacing: 4) {
-          Image(systemName: "mic.fill")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Gauge(value: min(1, Double(recorder.level) * 3)) {
-            EmptyView()
-          }
-          .gaugeStyle(.accessoryLinearCapacity)
-          .tint(.green)
-          .frame(width: 120)
-        }
-        .opacity(recorder.isRecording ? 1 : 0.4)
+        InputLevelGauge(level: recorder.level, icon: "mic.fill", width: 120)
+          .opacity(recorder.isRecording ? 1 : 0.4)
 
         Text(verbatim: String(format: "%.1f s", recorder.seconds))
           .monospacedDigit()
