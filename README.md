@@ -30,7 +30,8 @@ record when registering speakers).
   speaker while the words are being written. When a speaker change lands
   inside one finalized
   entry, the entry is split at the change so each part carries its own
-  speaker (labels can rearrange for a few seconds after the text appears —
+  speaker, preferring a sentence end near the change (labels can rearrange
+  for a few seconds after the text appears —
   diarization runs slightly behind transcription). The diarization model is
   selectable in Settings: **Sortformer** (very stable identities, up to 4
   speakers per stream) or **LS-EEND** (lightweight, up to 10 speakers per

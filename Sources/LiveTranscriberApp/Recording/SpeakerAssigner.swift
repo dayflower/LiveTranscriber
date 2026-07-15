@@ -122,8 +122,9 @@ enum SpeakerAssigner {
   /// Split a finalized segment's text at speaker boundaries: each run binds
   /// to the diarized segment it overlaps the longest, runs nothing covers
   /// inherit the previous run's speaker (leading ones take the first
-  /// attributed speaker), and consecutive same-speaker runs merge into one
-  /// piece.
+  /// attributed speaker), each resulting boundary snaps to a nearby sentence
+  /// end (see `snapBoundariesToSentenceEnds`), and consecutive same-speaker
+  /// runs merge into one piece.
   ///
   /// Returns `nil` when no run overlaps any diarized segment — the caller
   /// falls back to whole-segment assignment. A single-piece result means
@@ -159,6 +160,8 @@ enum SpeakerAssigner {
       }
     }
 
+    snapBoundariesToSentenceEnds(&assignments, runs: runs)
+
     // Every group holds at least one timed run: untimed runs inherit their
     // neighbor's label, so they always merge into an attributed (timed)
     // run's group. Offsets aggregate over the timed runs only.
@@ -187,6 +190,89 @@ enum SpeakerAssigner {
             + "\(DiarizationDebug.time($0.audioEnd)) \($0.text.debugDescription)"
         }.joined(separator: " | "))
     return pieces
+  }
+
+  /// Punctuation a speaker is likely to hand over the floor after. The comma
+  /// family is deliberately absent: it marks a pause inside one speaker's
+  /// sentence, so snapping to it would move boundaries that overlap had right.
+  private static let sentenceEnders: Set<Character> = ["。", "！", "？", ".", "!", "?"]
+
+  /// How far a speaker boundary may travel to reach a sentence end. Sized to
+  /// the observed error: the recognizer absorbs a turn-taking pause of up to
+  /// roughly a second into one run.
+  static let snapWindow: TimeInterval = 1.0
+
+  /// Move each speaker change onto a nearby sentence end.
+  ///
+  /// The recognizer times runs contiguously — a real pause produces no gap,
+  /// it is absorbed into whichever run sits beside it, whose audio range then
+  /// reaches into the neighboring speaker's turn (a Japanese character
+  /// normally spans ~0.1 s; one swallowing a turn-taking pause spans up to
+  /// ~1 s). Overlap alone therefore misplaces the boundary by a few runs,
+  /// which reads as the next speaker's opening characters trailing the
+  /// previous line. Speakers overwhelmingly take the floor at a sentence end,
+  /// so a boundary with one within `snapWindow` moves there; a boundary with
+  /// no sentence end nearby (a genuine mid-sentence interruption) keeps its
+  /// overlap-derived position. Boundaries stay ordered and never cross, so
+  /// no piece is dropped.
+  private static func snapBoundariesToSentenceEnds(
+    _ assignments: inout [SpeakerLabel?], runs: [TranscriptTextRun]
+  ) {
+    let boundaries = assignments.indices.dropFirst().filter {
+      assignments[$0] != assignments[$0 - 1]
+    }
+    guard !boundaries.isEmpty else { return }
+    let speakers = [assignments[0]] + boundaries.map { assignments[$0] }
+
+    // Each boundary may move within the runs its neighbors do not claim,
+    // which keeps the sequence strictly increasing whichever way they snap.
+    var snapped: [Int] = []
+    for (position, boundary) in boundaries.enumerated() {
+      let lower = (snapped.last ?? 0) + 1
+      let upper = position + 1 < boundaries.count ? boundaries[position + 1] : assignments.count
+      snapped.append(snapTarget(boundary, within: lower..<upper, runs: runs))
+    }
+    if DiarizationDebug.isEnabled, snapped != boundaries {
+      DiarizationDebug.log("snap boundaries \(boundaries) -> \(snapped)")
+    }
+
+    let cuts = [0] + snapped + [assignments.count]
+    for (position, speaker) in speakers.enumerated() {
+      for index in cuts[position]..<cuts[position + 1] {
+        assignments[index] = speaker
+      }
+    }
+  }
+
+  /// The index in `range` closest in time to `boundary` that follows a
+  /// sentence-ending run, or `boundary` itself when none is within
+  /// `snapWindow`.
+  private static func snapTarget(
+    _ boundary: Int, within range: Range<Int>, runs: [TranscriptTextRun]
+  ) -> Int {
+    guard let origin = cutTime(at: boundary, runs: runs) else { return boundary }
+    var best: (index: Int, distance: TimeInterval)?
+    for index in range {
+      guard endsSentence(runs[index - 1]), let time = cutTime(at: index, runs: runs) else {
+        continue
+      }
+      let distance = abs(time - origin)
+      guard distance <= snapWindow else { continue }
+      if best.map({ distance < $0.distance }) ?? true { best = (index, distance) }
+    }
+    return best?.index ?? boundary
+  }
+
+  /// When the cut before `index` happens. Prefers the following run's start;
+  /// an untimed run falls back to where the previous one ended.
+  private static func cutTime(at index: Int, runs: [TranscriptTextRun]) -> TimeInterval? {
+    if let start = runs[index].audioStart { return start }
+    return index > 0 ? runs[index - 1].audioEnd : nil
+  }
+
+  private static func endsSentence(_ run: TranscriptTextRun) -> Bool {
+    guard let last = run.text.trimmingCharacters(in: .whitespaces).last else { return false }
+    return sentenceEnders.contains(last)
   }
 
   /// Deterministic tiebreak order: numbered speakers first (by number),

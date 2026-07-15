@@ -167,7 +167,15 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     `audioTimeRange` timings (per character for Japanese), each run binds
     to its longest-overlap diarized segment, and once the frontier passes
     the transcript (its coverage is complete by definition) it is replaced
-    by one piece per speaker stretch (`SpeakerAssigner.split`). Pieces are
+    by one piece per speaker stretch (`SpeakerAssigner.split`). Each such
+    boundary then snaps to a sentence end within `snapWindow` (1 s), if one
+    is there: the recognizer times runs contiguously, absorbing a pause into
+    whichever run abuts it (a Japanese character normally spans ~0.1 s; one
+    swallowing a turn-taking pause spans up to ~1 s), so its range reaches
+    into the neighboring turn and overlap alone leaves the next speaker's
+    opening characters on the previous line. Boundaries with no sentence end
+    nearby (a mid-sentence interruption) keep their overlap-derived
+    position. Pieces are
     marked `speakerResolved` so later relabeling never touches them; the
     streaming file keeps the unsplit line until the finalize rewrite.
     Speaker slot state is per-instance — a voice present on both streams

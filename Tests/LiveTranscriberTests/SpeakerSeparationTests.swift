@@ -246,6 +246,98 @@ struct SpeakerSeparationTests {
       ])
   }
 
+  // MARK: - Snapping speaker boundaries to sentence ends
+
+  @Test
+  func splitSnapsABoundaryBackToASentenceEnd() {
+    // Real timings. The recognizer gave 「。」 a 0.54 s span — it absorbed the
+    // turn-taking pause — which reaches past the diarizer's speaker change,
+    // so overlap alone handed the period to the next speaker.
+    let runs = [
+      run("い", 5.46, 5.58), run("。", 5.58, 6.12),
+      run("へ", 6.12, 6.24), run("ー", 6.24, 6.36),
+    ]
+    let state = snapshot(frontier: 8, [seg(1, 4.48, 5.76), seg(2, 5.76, 7.68)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
+    #expect(
+      pieces == [
+        .init(text: "い。", audioStart: 5.46, audioEnd: 6.12, speaker: .diarized(1)),
+        .init(text: "へー", audioStart: 6.12, audioEnd: 6.36, speaker: .diarized(2)),
+      ])
+  }
+
+  @Test
+  func splitSnapsABoundaryOverInheritedRuns() {
+    // Real timings. 「さっき」 opens the next speaker's turn but is timed
+    // inside the previous one's segment, and 「き」 falls in the gap between
+    // segments, inheriting the previous speaker.
+    let runs = [
+      run("す", 11.82, 11.88), run("。", 11.88, 12.00),
+      run("さ", 12.00, 12.06), run("っ", 12.06, 12.12), run("き", 12.12, 12.18),
+      run("の", 12.18, 12.30),
+    ]
+    let state = snapshot(frontier: 14, [seg(1, 10.08, 12.08), seg(3, 12.24, 13.92)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
+    #expect(
+      pieces == [
+        .init(text: "す。", audioStart: 11.82, audioEnd: 12.00, speaker: .diarized(1)),
+        .init(text: "さっきの", audioStart: 12.00, audioEnd: 12.30, speaker: .diarized(3)),
+      ])
+  }
+
+  @Test
+  func splitSnapsABoundaryForwardToASentenceEnd() {
+    // The sentence end sits after the overlap-derived cut, at the very edge
+    // of the snap window.
+    let runs = [run("a", 0, 1), run("b", 1, 2), run("。", 2, 3), run("c", 3, 4)]
+    let state = snapshot(frontier: 4, [seg(1, 0, 1.5), seg(2, 1.5, 4)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
+    #expect(
+      pieces == [
+        .init(text: "ab。", audioStart: 0, audioEnd: 3, speaker: .diarized(1)),
+        .init(text: "c", audioStart: 3, audioEnd: 4, speaker: .diarized(2)),
+      ])
+  }
+
+  @Test
+  func splitDoesNotSnapToACommaOrBeyondTheWindow() {
+    // Same shape as the forward-snap case: only the punctuation differs, and
+    // a comma marks a pause within one speaker's sentence.
+    let comma = [run("a", 0, 1), run("b", 1, 2), run("、", 2, 3), run("c", 3, 4)]
+    let state = snapshot(frontier: 4, [seg(1, 0, 1.5), seg(2, 1.5, 4)])
+    #expect(
+      SpeakerAssigner.split(runs: comma, snapshot: state) == [
+        .init(text: "ab", audioStart: 0, audioEnd: 2, speaker: .diarized(1)),
+        .init(text: "、c", audioStart: 2, audioEnd: 4, speaker: .diarized(2)),
+      ])
+
+    // A sentence end 2 s away is past the window; the cut stays put.
+    let distant = [run("。", 0, 1), run("a", 1, 2), run("b", 2, 3), run("c", 3, 4)]
+    let far = snapshot(frontier: 4, [seg(1, 0, 2.5), seg(2, 2.5, 4)])
+    #expect(
+      SpeakerAssigner.split(runs: distant, snapshot: far) == [
+        .init(text: "。ab", audioStart: 0, audioEnd: 3, speaker: .diarized(1)),
+        .init(text: "c", audioStart: 3, audioEnd: 4, speaker: .diarized(2)),
+      ])
+  }
+
+  @Test
+  func splitKeepsSnappedBoundariesOrderedAcrossSpeakers() {
+    // Two boundaries snapping in opposite directions must not cross, so
+    // every speaker keeps a piece.
+    let runs = [
+      run("a", 0, 1), run("。", 1, 2), run("b", 2, 3), run("。", 3, 4), run("c", 4, 5),
+    ]
+    let state = snapshot(frontier: 5, [seg(1, 0, 2.5), seg(2, 2.5, 3.5), seg(3, 3.5, 5)])
+    let pieces = SpeakerAssigner.split(runs: runs, snapshot: state)
+    #expect(
+      pieces == [
+        .init(text: "a。", audioStart: 0, audioEnd: 2, speaker: .diarized(1)),
+        .init(text: "b。", audioStart: 2, audioEnd: 4, speaker: .diarized(2)),
+        .init(text: "c", audioStart: 4, audioEnd: 5, speaker: .diarized(3)),
+      ])
+  }
+
   @Test
   func splitReturnsNilWithoutAnOverlappingSegment() {
     let runs = [run("ab", 0, 2)]
