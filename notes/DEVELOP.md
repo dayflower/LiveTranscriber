@@ -77,7 +77,7 @@ Two targets plus tests:
   | Area | Responsibility |
   | --- | --- |
   | `AppModel.swift` | Root composition; wires recording ↔ file writing ↔ store; sidebar selection; export |
-  | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `AutoStopMonitor`, `SilenceTracker`, `SpeakerAssigner` (turn → segment overlap matching) |
+  | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `TranscriptLabeler` (pipeline events → transcript, labeling and retro-labeling), `AutoStopMonitor`, `SilenceTracker`, `SpeakerAssigner` (turn → segment overlap matching) |
   | `Store/` | `SessionStore` (folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL/YAML implementations |
   | `Calendar/` | `CalendarService` (EventKit) and the pure `CalendarMatcher` heuristic |
   | `Settings/AppSettings.swift` | UserDefaults-backed preferences |
@@ -115,7 +115,7 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   two activity gates' signals are OR-merged (`SourceMergers.swift`) so
   silence-driven consumers keep seeing one session-level signal. Segments
   from the two engines finalize on independent cadences, so
-  `RecordingController` insert-sorts them by date. The modes differ in how
+  `TranscriptLabeler` insert-sorts them by date. The modes differ in how
   segments get their speaker:
   - `.off` — the diagram above, unchanged (single engine, mixer when both
     sources are active).

@@ -66,7 +66,7 @@ struct SpeakerSeparationTests {
     // Two engines finalize on independent cadences: simulate out-of-order
     // arrival and expect chronological storage.
     for offset in [10.0, 25.0, 18.0, 30.0, 5.0] {
-      RecordingController.insertSorted(segment(offset), into: &segments)
+      TranscriptLabeler.insertSorted(segment(offset), into: &segments)
     }
 
     #expect(segments.map(\.audioStart) == [5.0, 10.0, 18.0, 25.0, 30.0])
@@ -348,12 +348,12 @@ struct SpeakerSeparationTests {
     #expect(SpeakerAssigner.split(runs: [run("x", nil, nil)], snapshot: state) == nil)
   }
 
-  // MARK: - Retro-labeling through the controller
+  // MARK: - Retro-labeling through the labeler
 
   @MainActor
   @Test
   func relabelSplitsAFinalizedSegmentOnceTheFrontierPasses() {
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Split", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "Mic")
@@ -363,9 +363,8 @@ struct SpeakerSeparationTests {
       runs: [run("こんにちは", 0, 3), run("どうも", 3, 5)])
     session.segments = [segment]
 
-    controller.applyForTesting(
-      session: session,
-      snapshots: [snapshot(frontier: 6, source: .appAudio, [seg(1, 0, 3), seg(2, 3, 6)])])
+    labeler.apply(
+      snapshot(frontier: 6, source: .appAudio, [seg(1, 0, 3), seg(2, 3, 6)]), to: session)
 
     #expect(session.segments.map(\.text) == ["こんにちは", "どうも"])
     #expect(session.segments.map(\.speaker) == ["Speaker 1", "Speaker 2"])
@@ -381,7 +380,7 @@ struct SpeakerSeparationTests {
   @MainActor
   @Test
   func relabelBeforeTheFrontierOnlyRefinesTheWholeLabel() {
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Pending", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "Mic")
@@ -394,9 +393,7 @@ struct SpeakerSeparationTests {
 
     // Diarization has not processed past the segment yet, so it must not
     // split — even though a second speaker's open segment already differs.
-    controller.applyForTesting(
-      session: session,
-      snapshots: [snapshot(frontier: 3, source: .appAudio, [seg(1, 0, 3)])])
+    labeler.apply(snapshot(frontier: 3, source: .appAudio, [seg(1, 0, 3)]), to: session)
 
     #expect(session.segments.count == 1)
     #expect(session.segments[0].speaker == "Speaker 1")
@@ -406,7 +403,7 @@ struct SpeakerSeparationTests {
   @MainActor
   @Test
   func relabelNeverTouchesResolvedSegments() {
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Stamped", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "Mic + App")
@@ -418,9 +415,8 @@ struct SpeakerSeparationTests {
         speakerResolved: true)
     ]
 
-    controller.applyForTesting(
-      session: session,
-      snapshots: [snapshot(frontier: 6, source: .microphone, [seg(1, 0, 3), seg(2, 3, 6)])])
+    labeler.apply(
+      snapshot(frontier: 6, source: .microphone, [seg(1, 0, 3), seg(2, 3, 6)]), to: session)
 
     #expect(session.segments.count == 1)
     #expect(session.segments[0].speaker == "Mic")
@@ -431,7 +427,7 @@ struct SpeakerSeparationTests {
   func relabelScopesSnapshotsToTheSegmentSource() {
     // Per-source diarization: each stream's snapshot lives on that stream's
     // own timeline and must not label the other stream's segments.
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Scoped", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "Mic + App")
@@ -444,12 +440,8 @@ struct SpeakerSeparationTests {
         audioStart: 0, audioEnd: 4, speaker: nil, source: .appAudio),
     ]
 
-    controller.applyForTesting(
-      session: session,
-      snapshots: [
-        snapshot(frontier: 5, source: .microphone, [seg(1, 0, 5)]),
-        snapshot(frontier: 5, source: .appAudio, [seg(2, 0, 5)]),
-      ])
+    labeler.apply(snapshot(frontier: 5, source: .microphone, [seg(1, 0, 5)]), to: session)
+    labeler.apply(snapshot(frontier: 5, source: .appAudio, [seg(2, 0, 5)]), to: session)
 
     #expect(session.segments.map(\.speaker) == ["Mic Speaker 1", "App Speaker 2"])
   }
@@ -459,7 +451,7 @@ struct SpeakerSeparationTests {
   func relabelAppliesTheLoneSnapshotToUnsourcedSegments() {
     // Single-engine sessions carry no source on their transcripts; the lone
     // diarizer's snapshot still applies.
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Lone", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "App")
@@ -468,9 +460,7 @@ struct SpeakerSeparationTests {
         text: "hello", date: session.startedAt, audioStart: 0, audioEnd: 4, speaker: nil)
     ]
 
-    controller.applyForTesting(
-      session: session,
-      snapshots: [snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)])])
+    labeler.apply(snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)]), to: session)
 
     #expect(session.segments[0].speaker == "Speaker 1")
   }
@@ -480,7 +470,7 @@ struct SpeakerSeparationTests {
   func relabelLeavesUndiarizedStreamsAlone() {
     // A stream with no snapshot at all (the microphone in hybrid mode) must
     // keep its provisional source label.
-    let controller = RecordingController()
+    let labeler = TranscriptLabeler()
     let session = TranscriptSession(
       name: "Hybrid", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
       localeIdentifier: "ja-JP", sourceDescription: "Mic + App")
@@ -490,9 +480,7 @@ struct SpeakerSeparationTests {
         audioStart: 0, audioEnd: 4, speaker: "Mic", source: .microphone)
     ]
 
-    controller.applyForTesting(
-      session: session,
-      snapshots: [snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)])])
+    labeler.apply(snapshot(frontier: 5, source: .appAudio, [seg(1, 0, 5)]), to: session)
 
     #expect(session.segments[0].speaker == "Mic")
   }
@@ -500,23 +488,23 @@ struct SpeakerSeparationTests {
   @MainActor
   @Test
   func displayLabelsAreStable() {
-    #expect(RecordingController.displayLabel(for: .microphone) == "Mic")
-    #expect(RecordingController.displayLabel(for: .appAudio) == "App")
-    #expect(RecordingController.displayLabel(for: .diarized(2)) == "Speaker 2")
-    #expect(RecordingController.displayLabel(for: nil) == nil)
+    #expect(TranscriptLabeler.displayLabel(for: .microphone) == "Mic")
+    #expect(TranscriptLabeler.displayLabel(for: .appAudio) == "App")
+    #expect(TranscriptLabeler.displayLabel(for: .diarized(2)) == "Speaker 2")
+    #expect(TranscriptLabeler.displayLabel(for: nil) == nil)
     // Diarized numbers count per stream; the segment's source disambiguates.
     #expect(
-      RecordingController.displayLabel(for: .diarized(1), source: .microphone) == "Mic Speaker 1")
+      TranscriptLabeler.displayLabel(for: .diarized(1), source: .microphone) == "Mic Speaker 1")
     #expect(
-      RecordingController.displayLabel(for: .diarized(1), source: .appAudio) == "App Speaker 1")
+      TranscriptLabeler.displayLabel(for: .diarized(1), source: .appAudio) == "App Speaker 1")
     // Number 0 is the unknown-speaker bucket (never emitted by the diarizer).
     #expect(
-      RecordingController.displayLabel(for: .diarized(0), source: .microphone) == "Mic Speaker 0")
+      TranscriptLabeler.displayLabel(for: .diarized(0), source: .microphone) == "Mic Speaker 0")
     // Source-attributed labels never take a prefix.
-    #expect(RecordingController.displayLabel(for: .microphone, source: .microphone) == "Mic")
+    #expect(TranscriptLabeler.displayLabel(for: .microphone, source: .microphone) == "Mic")
     // Enrolled names are stream-independent: never prefixed by the source.
-    #expect(RecordingController.displayLabel(for: .named("Alice")) == "Alice")
-    #expect(RecordingController.displayLabel(for: .named("Alice"), source: .appAudio) == "Alice")
+    #expect(TranscriptLabeler.displayLabel(for: .named("Alice")) == "Alice")
+    #expect(TranscriptLabeler.displayLabel(for: .named("Alice"), source: .appAudio) == "Alice")
   }
 
   @Test
