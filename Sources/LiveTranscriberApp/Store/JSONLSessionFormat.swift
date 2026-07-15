@@ -54,13 +54,6 @@ struct JSONLSessionFormat: SessionFormat {
       ))
   }
 
-  func serialize(_ snapshot: SessionSnapshot) -> String {
-    header(for: snapshot)
-      + snapshot.segments
-      .map { segmentChunk($0, timestampsEnabled: snapshot.timestampsEnabled) }
-      .joined()
-  }
-
   func read(_ text: String) throws -> SessionSnapshot {
     let decoder = JSONDecoder()
     var lines = text.split(separator: "\n", omittingEmptySubsequences: true)[...]

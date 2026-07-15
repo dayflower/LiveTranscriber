@@ -51,6 +51,14 @@ final class AppModel {
     Task { await store.refresh() }
   }
 
+  // MARK: - Error reporting
+
+  /// Surface a failure in the UI banner. `context` says what failed; the
+  /// error's own localized description is appended.
+  private func report(_ error: any Error, _ context: LocalizedStringResource) {
+    recording.lastError = "\(String(localized: context)): \(error.localizedDescription)"
+  }
+
   // MARK: - Displayed session
 
   /// The session shown in the detail pane: explicit selection first, then
@@ -75,9 +83,7 @@ final class AppModel {
       do {
         fileSessions[url] = try await store.loadSession(at: url)
       } catch {
-        recording.lastError = String(
-          localized: "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
-        )
+        report(error, "Could not read \(url.lastPathComponent)")
       }
     }
   }
@@ -103,9 +109,7 @@ final class AppModel {
       session.fileURL = writer.url
       self.writer = writer
     } catch {
-      recording.lastError = String(
-        localized: "Could not create the transcript file: \(error.localizedDescription)"
-      )
+      report(error, "Could not create the transcript file")
     }
   }
 
@@ -120,9 +124,7 @@ final class AppModel {
         Task { await store.refresh() }
         return
       } catch {
-        recording.lastError = String(
-          localized: "Could not finalize the transcript file: \(error.localizedDescription)"
-        )
+        report(error, "Could not finalize the transcript file")
       }
     }
     // Not saved (by per-session choice, or the writer failed): keep it in
@@ -159,9 +161,7 @@ final class AppModel {
       let text = formatID.format.serialize(session.makeSnapshot())
       try Data(text.utf8).write(to: url, options: .atomic)
     } catch {
-      recording.lastError = String(
-        localized: "Could not export the transcript: \(error.localizedDescription)"
-      )
+      report(error, "Could not export the transcript")
     }
   }
 
@@ -172,10 +172,7 @@ final class AppModel {
     do {
       try store.trash(at: url)
     } catch {
-      recording.lastError = String(
-        localized:
-          "Could not move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
-      )
+      report(error, "Could not move \(url.lastPathComponent) to the Trash")
       return
     }
     fileSessions[url] = nil
@@ -210,9 +207,7 @@ final class AppModel {
       }
       Task { await store.refresh() }
     } catch {
-      recording.lastError = String(
-        localized: "Could not rename the transcript file: \(error.localizedDescription)"
-      )
+      report(error, "Could not rename the transcript file")
     }
   }
 }

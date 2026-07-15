@@ -100,13 +100,6 @@ struct YAMLSessionFormat: SessionFormat {
     ])
   }
 
-  func serialize(_ snapshot: SessionSnapshot) -> String {
-    header(for: snapshot)
-      + snapshot.segments
-      .map { segmentChunk($0, timestampsEnabled: snapshot.timestampsEnabled) }
-      .joined()
-  }
-
   func read(_ text: String) throws -> SessionSnapshot {
     guard
       let file = try? YAMLDecoder().decode(FileContent.self, from: text),

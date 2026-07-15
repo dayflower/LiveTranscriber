@@ -33,13 +33,6 @@ struct PlainTextSessionFormat: SessionFormat {
     return "\(prefix)\(segment.text)\n"
   }
 
-  func serialize(_ snapshot: SessionSnapshot) -> String {
-    header(for: snapshot)
-      + snapshot.segments
-      .map { segmentChunk($0, timestampsEnabled: snapshot.timestampsEnabled) }
-      .joined()
-  }
-
   func read(_ text: String) throws -> SessionSnapshot {
     guard
       let (fields, body) = SessionFileText.parseFrontmatter(text),

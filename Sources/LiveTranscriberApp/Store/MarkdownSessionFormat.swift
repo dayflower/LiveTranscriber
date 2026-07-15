@@ -34,13 +34,6 @@ struct MarkdownSessionFormat: SessionFormat {
     return "\(prefix)\(segment.text)\n\n"
   }
 
-  func serialize(_ snapshot: SessionSnapshot) -> String {
-    header(for: snapshot)
-      + snapshot.segments
-      .map { segmentChunk($0, timestampsEnabled: snapshot.timestampsEnabled) }
-      .joined()
-  }
-
   func read(_ text: String) throws -> SessionSnapshot {
     guard
       let (fields, body) = SessionFileText.parseFrontmatter(text),

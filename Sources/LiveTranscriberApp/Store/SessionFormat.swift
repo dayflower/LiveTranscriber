@@ -74,6 +74,17 @@ protocol SessionFormat: Sendable {
   func read(_ text: String) throws -> SessionSnapshot
 }
 
+extension SessionFormat {
+  /// The streaming output concatenated. Do not override: the atomic rewrite
+  /// has to match what the crash-resilient streaming path leaves on disk.
+  func serialize(_ snapshot: SessionSnapshot) -> String {
+    header(for: snapshot)
+      + snapshot.segments
+      .map { segmentChunk($0, timestampsEnabled: snapshot.timestampsEnabled) }
+      .joined()
+  }
+}
+
 enum SessionFormatError: Error {
   case unreadable
 }
