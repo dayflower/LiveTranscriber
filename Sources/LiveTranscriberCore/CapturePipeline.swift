@@ -45,6 +45,25 @@ public actor CapturePipeline {
   private var diarizers: [AudioSource: SpeakerDiarizer] = [:]
   private var stopped = false
 
+  /// Where one capture's converted buffers go, and the format it must
+  /// convert to before feeding that sink.
+  private struct CaptureFeed {
+    let sink: @Sendable (AVAudioPCMBuffer) -> Void
+    let format: AVAudioFormat
+  }
+
+  /// The wiring a topology hands to `startCaptures`; a source is absent when
+  /// the configuration does not use it.
+  private struct CaptureWiring {
+    var microphone: CaptureFeed?
+    var appAudio: CaptureFeed?
+  }
+
+  private nonisolated var onError: @Sendable (String) -> Void {
+    let continuation = eventContinuation
+    return { continuation.yield(.failure($0)) }
+  }
+
   /// Every separation mode keeps the two capture streams apart, with one
   /// engine per source — audio is only ever mixed when separation is off.
   /// With a single source each mode degrades to a single unlabeled engine.
@@ -185,6 +204,31 @@ public actor CapturePipeline {
     return gate
   }
 
+  /// Chain the stages every engine-bound stream shares, wrapping from the
+  /// inside out: the engine input, the source's diarizer where it has one,
+  /// then the activity gate (`onActivity` nil means no gate). Buffers
+  /// therefore flow gate → diarizer → engine. The level meter is deliberately
+  /// not part of this chain — where it sits differs per topology.
+  private func makeEngineFeed(
+    engine: TranscriptionEngine,
+    diarizer: SpeakerDiarizer?,
+    onActivity: (@Sendable (Bool) -> Void)?
+  ) async -> @Sendable (AVAudioPCMBuffer) -> Void {
+    let input = engine.input
+    var feed: @Sendable (AVAudioPCMBuffer) -> Void = {
+      input.yield(AnalyzerInput(buffer: $0))
+    }
+    if let diarizer {
+      await diarizer.start()
+      feed = diarizer.tap(feed)
+    }
+    if let onActivity {
+      let gate = makeActivityGate(engine: engine, onChange: onActivity)
+      feed = gate.tap(feed)
+    }
+    return feed
+  }
+
   /// Start the audio captures and result consumption.
   public func start() async throws {
     guard !engines.isEmpty else { throw PipelineError.notPrepared }
@@ -194,131 +238,153 @@ public actor CapturePipeline {
       engineTasks.append(Task { await engine.run() })
     }
 
+    let wiring =
+      usesEnginePerSource
+      ? await startEnginePerSource()
+      : await startSingleEngine()
+    try await startCaptures(wiring)
+  }
+
+  /// One engine per source. The microphone delivers continuously and feeds
+  /// its engine directly; app audio goes through a single-inlet mixer purely
+  /// for silence padding, because ScreenCaptureKit delivers nothing during
+  /// system silence and the engine's audio timeline would otherwise fall
+  /// behind the wall clock. A diarized source's diarizer taps the exact
+  /// stream its engine consumes (post-padding for app audio), so turn offsets
+  /// share that engine's timeline origin. Both gates' activity is OR-merged
+  /// so silence-driven consumers see a single session-level signal.
+  private func startEnginePerSource() async -> CaptureWiring {
     let continuation = eventContinuation
-    let onError: @Sendable (String) -> Void = { continuation.yield(.failure($0)) }
+    let merger: ActivityMerger? =
+      configuration.enableSpeechActivity
+      ? ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
+      : nil
 
-    var appSink: (@Sendable (AVAudioPCMBuffer) -> Void)?
-    var microphoneSink: (@Sendable (AVAudioPCMBuffer) -> Void)?
-    var appCaptureFormat: AVAudioFormat?
-    var microphoneCaptureFormat: AVAudioFormat?
+    var wiring = CaptureWiring()
+    for entry in engines {
+      guard let source = entry.source else { continue }
+      let meter = AudioLevelMeter {
+        continuation.yield(.audioLevel(source: source, level: $0))
+      }
+      levelMeters.append(meter)
+      var onActivity: (@Sendable (Bool) -> Void)?
+      if let merger {
+        onActivity = { merger.update(source, isSpeaking: $0) }
+      }
+      let engineFeed = await makeEngineFeed(
+        engine: entry.engine,
+        diarizer: diarizers[source],
+        onActivity: onActivity
+      )
+      let engineSink = meter.tap(engineFeed)
 
-    if usesEnginePerSource {
-      // One engine per source. The microphone delivers continuously and
-      // feeds its engine directly; app audio goes through a single-inlet
-      // mixer purely for silence padding, because ScreenCaptureKit delivers
-      // nothing during system silence and the engine's audio timeline would
-      // otherwise fall behind the wall clock. A diarized source's diarizer
-      // taps the exact stream its engine consumes (post-padding for app
-      // audio), so turn offsets share that engine's timeline origin.
-      // Both gates' activity is OR-merged so silence-driven consumers see a
-      // single session-level signal.
-      let merger: ActivityMerger? =
-        configuration.enableSpeechActivity
-        ? ActivityMerger { continuation.yield(.speechActivity(isSpeaking: $0)) }
-        : nil
-      for entry in engines {
-        guard let source = entry.source else { continue }
-        let engine = entry.engine
-        let input = engine.input
-        let meter = AudioLevelMeter {
-          continuation.yield(.audioLevel(source: source, level: $0))
-        }
-        levelMeters.append(meter)
-        var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
-          input.yield(AnalyzerInput(buffer: $0))
-        }
-        if let diarizer = diarizers[source] {
-          await diarizer.start()
-          engineFeed = diarizer.tap(engineFeed)
-        }
-        if let merger {
-          let gate = makeActivityGate(engine: engine) { merger.update(source, isSpeaking: $0) }
-          engineFeed = gate.tap(engineFeed)
-        }
-        let engineSink = meter.tap(engineFeed)
-
-        switch source {
-        case .microphone:
-          microphoneSink = microphoneGain.tap(engineSink)
-          microphoneCaptureFormat = entry.engine.audioFormat
-        case .appAudio:
-          let padder = AudioMixer(
-            outputFormat: entry.engine.audioFormat, sink: engineSink, onError: onError)
-          mixers.append(padder)
-          let inlet = padder.appInlet
-          appSink = appAudioGain.tap { inlet.feed($0) }
-          appCaptureFormat = padder.workingFormat
-          padder.start()
-        }
-      }
-    } else {
-      let engine = engines[0].engine
-      let input = engine.input
-      var engineFeed: @Sendable (AVAudioPCMBuffer) -> Void = {
-        input.yield(AnalyzerInput(buffer: $0))
-      }
-      // Single-engine sessions have at most one diarizer (a lone diarized
-      // source; separation off is the only way into the mixing path). It
-      // taps the exact stream the engine consumes, so its accumulated
-      // sample offsets share the transcriber's timeline origin.
-      if let diarizer = diarizers.values.first {
-        await diarizer.start()
-        engineFeed = diarizer.tap(engineFeed)
-      }
-      if configuration.enableSpeechActivity {
-        let gate = makeActivityGate(engine: engine) {
-          continuation.yield(.speechActivity(isSpeaking: $0))
-        }
-        engineFeed = gate.tap(engineFeed)
-      }
-
-      // Single source feeds the engine directly; two sources go through the
-      // mixer, whose clock then defines the timeline.
-      let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
-      if mixing {
-        // Per-source levels are measured on the mixer's inlet taps (after
-        // silence padding), not on the mixed output.
-        let appMeter = AudioLevelMeter {
-          continuation.yield(.audioLevel(source: .appAudio, level: $0))
-        }
-        let microphoneMeter = AudioLevelMeter {
-          continuation.yield(.audioLevel(source: .microphone, level: $0))
-        }
-        levelMeters.append(contentsOf: [appMeter, microphoneMeter])
-        let mixer = AudioMixer(
-          outputFormat: engine.audioFormat,
-          appTap: appMeter.monitor(),
-          microphoneTap: microphoneMeter.monitor(),
-          sink: engineFeed,
-          onError: onError
-        )
-        mixers.append(mixer)
-        let appInlet = mixer.appInlet
-        let microphoneInlet = mixer.microphoneInlet
-        appSink = appAudioGain.tap { appInlet.feed($0) }
-        microphoneSink = microphoneGain.tap { microphoneInlet.feed($0) }
-        appCaptureFormat = mixer.workingFormat
-        microphoneCaptureFormat = mixer.workingFormat
-        mixer.start()
-      } else {
-        let source: AudioSource = configuration.microphoneID != nil ? .microphone : .appAudio
-        let meter = AudioLevelMeter {
-          continuation.yield(.audioLevel(source: source, level: $0))
-        }
-        levelMeters.append(meter)
-        let engineSink = meter.tap(engineFeed)
-        appSink = appAudioGain.tap(engineSink)
-        microphoneSink = microphoneGain.tap(engineSink)
-        appCaptureFormat = engine.audioFormat
-        microphoneCaptureFormat = engine.audioFormat
+      switch source {
+      case .microphone:
+        wiring.microphone = CaptureFeed(
+          sink: microphoneGain.tap(engineSink), format: entry.engine.audioFormat)
+      case .appAudio:
+        let padder = AudioMixer(
+          outputFormat: entry.engine.audioFormat, sink: engineSink, onError: onError)
+        mixers.append(padder)
+        let inlet = padder.appInlet
+        wiring.appAudio = CaptureFeed(
+          sink: appAudioGain.tap { inlet.feed($0) }, format: padder.workingFormat)
+        padder.start()
       }
     }
+    return wiring
+  }
 
-    if let source = configuration.appAudio, let appSink, let appCaptureFormat {
+  /// One engine for the whole session: a single source feeds it directly, two
+  /// sources go through the mixer, whose clock then defines the timeline.
+  private func startSingleEngine() async -> CaptureWiring {
+    let continuation = eventContinuation
+    let engine = engines[0].engine
+    // Single-engine sessions have at most one diarizer (a lone diarized
+    // source; separation off is the only way into the mixing path). It taps
+    // the exact stream the engine consumes, so its accumulated sample offsets
+    // share the transcriber's timeline origin.
+    var onActivity: (@Sendable (Bool) -> Void)?
+    if configuration.enableSpeechActivity {
+      onActivity = { continuation.yield(.speechActivity(isSpeaking: $0)) }
+    }
+    let engineFeed = await makeEngineFeed(
+      engine: engine,
+      diarizer: diarizers.values.first,
+      onActivity: onActivity
+    )
+
+    let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
+    return mixing
+      ? startMixedWiring(engine: engine, engineFeed: engineFeed)
+      : directWiring(engine: engine, engineFeed: engineFeed)
+  }
+
+  /// Both sources into one engine through the mixer. Per-source levels are
+  /// measured on the mixer's inlet taps (after silence padding), not on the
+  /// mixed output.
+  private func startMixedWiring(
+    engine: TranscriptionEngine,
+    engineFeed: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+  ) -> CaptureWiring {
+    let continuation = eventContinuation
+    let appMeter = AudioLevelMeter {
+      continuation.yield(.audioLevel(source: .appAudio, level: $0))
+    }
+    let microphoneMeter = AudioLevelMeter {
+      continuation.yield(.audioLevel(source: .microphone, level: $0))
+    }
+    levelMeters.append(contentsOf: [appMeter, microphoneMeter])
+    let mixer = AudioMixer(
+      outputFormat: engine.audioFormat,
+      appTap: appMeter.monitor(),
+      microphoneTap: microphoneMeter.monitor(),
+      sink: engineFeed,
+      onError: onError
+    )
+    mixers.append(mixer)
+    let appInlet = mixer.appInlet
+    let microphoneInlet = mixer.microphoneInlet
+    let wiring = CaptureWiring(
+      microphone: CaptureFeed(
+        sink: microphoneGain.tap { microphoneInlet.feed($0) }, format: mixer.workingFormat),
+      appAudio: CaptureFeed(
+        sink: appAudioGain.tap { appInlet.feed($0) }, format: mixer.workingFormat)
+    )
+    mixer.start()
+    return wiring
+  }
+
+  /// The lone configured source feeding its engine directly.
+  private func directWiring(
+    engine: TranscriptionEngine,
+    engineFeed: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+  ) -> CaptureWiring {
+    let continuation = eventContinuation
+    let source: AudioSource = configuration.microphoneID != nil ? .microphone : .appAudio
+    let meter = AudioLevelMeter {
+      continuation.yield(.audioLevel(source: source, level: $0))
+    }
+    levelMeters.append(meter)
+    let engineSink = meter.tap(engineFeed)
+
+    var wiring = CaptureWiring()
+    switch source {
+    case .microphone:
+      wiring.microphone = CaptureFeed(
+        sink: microphoneGain.tap(engineSink), format: engine.audioFormat)
+    case .appAudio:
+      wiring.appAudio = CaptureFeed(sink: appAudioGain.tap(engineSink), format: engine.audioFormat)
+    }
+    return wiring
+  }
+
+  private func startCaptures(_ wiring: CaptureWiring) async throws {
+    if let source = configuration.appAudio, let feed = wiring.appAudio {
       let capture = AppAudioCapture(
-        outputFormat: appCaptureFormat,
+        outputFormat: feed.format,
         frameRate: configuration.captureFrameRate,
-        sink: appSink,
+        sink: feed.sink,
         onError: onError,
         onStopped: onError
       )
@@ -326,12 +392,10 @@ public actor CapturePipeline {
       appAudio = capture
     }
 
-    if let microphoneID = configuration.microphoneID, let microphoneSink,
-      let microphoneCaptureFormat
-    {
+    if let microphoneID = configuration.microphoneID, let feed = wiring.microphone {
       let capture = MicrophoneCapture(
-        outputFormat: microphoneCaptureFormat,
-        sink: microphoneSink,
+        outputFormat: feed.format,
+        sink: feed.sink,
         onError: onError
       )
       try capture.start(deviceID: microphoneID)
