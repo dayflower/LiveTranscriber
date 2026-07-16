@@ -201,6 +201,14 @@ private struct RecordingSettings: View {
       }
     }
     .formStyle(.grouped)
+    // The cached diarization model was loaded for the previous selection;
+    // drop it so its memory frees. The next pre-warm or session reloads.
+    .onChange(of: settings.diarizerBackend) { invalidateDiarizerCache() }
+    .onChange(of: settings.diarizerCompute) { invalidateDiarizerCache() }
+  }
+
+  private func invalidateDiarizerCache() {
+    Task { await DiarizerModelCache.shared.invalidate() }
   }
 
   @State private var showingAppCandidates = false

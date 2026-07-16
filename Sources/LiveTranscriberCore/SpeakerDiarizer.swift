@@ -78,9 +78,10 @@ actor SpeakerDiarizer {
   /// Download (first use, cached locally) or load the selected backend's
   /// models and build one diarizer per requested source. Progress appears as
   /// `.modelDownload`, like the speech assets — both run during the
-  /// preparing phase. Model containers hold per-instance inference buffers,
-  /// so each source loads its own copy (the download is cached after the
-  /// first).
+  /// preparing phase. Sortformer's `MLModel` comes from the process-wide
+  /// `DiarizerModelCache` (loading it means an expensive CoreML compile), so
+  /// only the first request pays the load; each source still gets its own
+  /// container with private inference buffers.
   static func prepare(
     sources: [AudioSource],
     backend: DiarizerBackend,
@@ -138,19 +139,16 @@ actor SpeakerDiarizer {
     minTurnSeconds: TimeInterval,
     emit: @escaping @Sendable (TranscriptionEvent) -> Void
   ) async throws -> any Diarizer {
-    // `.auto` passes `nil` so each backend keeps its own default resolution
-    // (Sortformer → all engines, LS-EEND → CPU only).
-    let computeUnits = computeUnits(compute)
+    let computeUnits = DiarizerModelCache.resolvedComputeUnits(compute, for: backend)
     switch backend {
     case .sortformer:
-      // `.default` carries no model variant, so name one explicitly;
-      // fastV2_1 is the low-latency streaming set.
-      let config = SortformerConfig.fastV2_1
-      let models = try await SortformerModels.loadFromHuggingFace(
-        config: config, computeUnits: computeUnits
+      let shared = try await DiarizerModelCache.shared.sortformerModel(
+        computeUnits: computeUnits
       ) { progress in
         emit(.modelDownload(progress: progress.fractionCompleted))
       }
+      let config = DiarizerModelCache.sortformerConfig
+      let models = try SortformerModels(config: config, main: shared.mainModel)
       let diarizer = SortformerDiarizer(
         config: config,
         timelineConfig: timelineConfig(.sortformerDefault, minTurnSeconds: minTurnSeconds))
@@ -159,7 +157,7 @@ actor SpeakerDiarizer {
 
     case .lsEEND:
       let model = try await LSEENDModel.loadFromHuggingFace(
-        computeUnits: computeUnits ?? .cpuOnly
+        computeUnits: computeUnits
       ) { progress in
         emit(.modelDownload(progress: progress.fractionCompleted))
       }
@@ -170,18 +168,6 @@ actor SpeakerDiarizer {
         model: model,
         timelineConfig: timelineConfig(
           .default(numSpeakers: 1, frameDurationSeconds: 0.1), minTurnSeconds: minTurnSeconds))
-    }
-  }
-
-  /// Maps the app-level selection to CoreML compute units; `.auto` returns
-  /// `nil` to defer to the backend's own default.
-  private static func computeUnits(_ compute: DiarizerCompute) -> MLComputeUnits? {
-    switch compute {
-    case .auto: return nil
-    case .cpuOnly: return .cpuOnly
-    case .cpuAndGPU: return .cpuAndGPU
-    case .cpuAndNeuralEngine: return .cpuAndNeuralEngine
-    case .all: return .all
     }
   }
 

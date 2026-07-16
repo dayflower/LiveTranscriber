@@ -10,6 +10,11 @@ struct RecordingToolbar: ToolbarContent {
     ToolbarItemGroup(placement: .primaryAction) {
       switch model.recording.phase {
       case .idle:
+        // Only while the model is pre-warming; a session's own load shows in
+        // the preparing phase below.
+        if let load = model.diarizerLoad {
+          DiarizerLoadIndicator(progress: load, iconOnly: true)
+        }
         Button {
           model.showingNewSessionSheet = true
         } label: {

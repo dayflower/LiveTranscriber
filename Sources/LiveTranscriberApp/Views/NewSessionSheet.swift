@@ -53,6 +53,14 @@ struct NewSessionSheet: View {
     }
     .frame(width: 720, height: 520)
     .task { await loadChoices() }
+    // Pre-warm the diarization model as soon as a diarizing session becomes
+    // likely, so it is (being) loaded by the time recording starts. The
+    // `@AppStorage` value the gate reads is already updated when `onChange`
+    // fires; a start during the load joins it and still shows progress.
+    .onAppear { model.prewarmDiarizerIfNeeded() }
+    .onChange(of: speakerSeparation) {
+      model.prewarmDiarizerIfNeeded()
+    }
     .onChange(of: appAudioEnabled) {
       if appAudioEnabled {
         Task { await loadApps() }
@@ -174,6 +182,12 @@ struct NewSessionSheet: View {
           ForEach(SpeakerSeparationMode.allCases, id: \.self) { mode in
             Text(mode.displayName)
               .tag(mode)
+          }
+        }
+
+        if sessionDiarizes, let load = model.diarizerLoad {
+          LabeledContent("Speaker model") {
+            DiarizerLoadIndicator(progress: load)
           }
         }
 

@@ -64,6 +64,7 @@ Two targets plus tests:
   | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
   | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.diarization` snapshots |
+  | `DiarizerModelCache.swift` | Process-wide cache for the loaded Sortformer `MLModel` (the CoreML/ANE compile is the slow part): single-flight loads, pre-warm, keep-one eviction |
   | `BufferConverter.swift` | `CMSampleBuffer` → `AVAudioPCMBuffer` bridging and format conversion |
   | `ModelManager.swift` | `AssetInventory` locale support/reservation/download |
   | `TranscriptionEvent.swift`, `CaptureConfiguration.swift` | Value types crossing the Core/App boundary |
@@ -132,9 +133,29 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
     (`DiarizerBackend`, carried in `CaptureConfiguration`): `.sortformer`
     or `.lsEEND`, both frame-streaming `Diarizer`s fed as audio arrives. A
     parallel `DiarizerCompute` setting picks the CoreML compute units at
-    model load (`.auto` defers to each backend — Sortformer resolves to all
-    engines, LS-EEND to CPU only — while the explicit cases override it); it
-    maps to `MLComputeUnits` in `SpeakerDiarizer.makeDiarizer`. Their
+    model load (`.auto` resolves to each backend's own default — Sortformer
+    to all engines, LS-EEND to CPU only — while the explicit cases override
+    it); `DiarizerModelCache.resolvedComputeUnits` maps it to
+    `MLComputeUnits`. Sortformer's `MLModel` is expensive to load (the ANE
+    program compile runs at `MLModel(contentsOf:)` time, seconds even with
+    the files on disk), so `DiarizerModelCache` keeps the one loaded model
+    process-wide, keyed by compute units: concurrent requests coalesce into
+    a single load, each stream builds its own `SortformerModels` container
+    (per-instance inference buffers) around the shared model, and a request
+    with a different key drops the previous entry (keep-one eviction —
+    running sessions retain theirs via ARC). `AppModel.prewarmDiarizerIfNeeded`
+    loads it in the background at launch (only when the last-used separation
+    mode diarizes) and when the new-session sheet appears or switches to a
+    diarizing mode, so recording starts without waiting for the compile; the
+    tradeoff is the model (~230 MB) staying resident while cached. A pre-warm
+    in flight shows as `AppModel.diarizerLoad` (`DiarizerLoadIndicator`: a
+    toolbar spinner while idle, a row in the sheet) — a warm cache reports no
+    progress, so nothing appears. The two phases differ: the download reports
+    byte progress, while the CoreML load reports none until it returns and so
+    stays indeterminate (`DiarizerModelLoadProgress.Phase`). Changing
+    the backend or compute-units setting invalidates the cache. LS-EEND is
+    not cached: it loads fast on the CPU, and its `LSEENDModel` serializes
+    predictions internally, so sharing one would serialize two streams. Their
     `DiarizerTimelineUpdate`s are assembled into
     `DiarizationSnapshot`s by `DiarizationAssembler`. Each snapshot is the
     stream's authoritative state and supersedes the previous one: an
@@ -379,9 +400,11 @@ user action.
 - The model download for a new locale happens during session preparation and
   is reported on the event stream (`.modelDownload`). The selected FluidAudio
   diarization model downloads the same way on the first diarizing session
-  (cached under FluidAudio's default models directory); each diarizer
-  instance loads its own copy (model containers hold per-instance inference
-  buffers).
+  (cached under FluidAudio's default models directory). Sortformer's loaded
+  `MLModel` is additionally kept in the process-wide `DiarizerModelCache`
+  (pre-warmed at launch / sheet-open) because FluidAudio re-runs the
+  expensive CoreML compile on every load; each diarizer instance only builds
+  its own buffer container around the shared model.
 - Every dual-source separation mode runs two `SpeechAnalyzer` sessions in
   parallel, roughly doubling recognition CPU/RAM — and `.fluidAudio` adds a
   diarizer per stream on top; watch thermals on long sessions.

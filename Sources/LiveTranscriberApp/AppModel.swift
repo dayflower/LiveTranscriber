@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LiveTranscriberCore
 import Observation
 import UniformTypeIdentifiers
 
@@ -49,6 +50,48 @@ final class AppModel {
     }
 
     Task { await store.refresh() }
+    prewarmDiarizerIfNeeded()
+  }
+
+  /// Progress of the background diarization-model load, or `nil` when none is
+  /// running (including a warm cache, which reports nothing). Drives the
+  /// toolbar and new-session-sheet indicators; a failure just clears it —
+  /// starting a session retries the load and reports the error there.
+  private(set) var diarizerLoad: DiarizerModelLoadProgress?
+
+  /// Identifies the pre-warm whose progress `diarizerLoad` shows. Progress
+  /// reports hop to the main actor, so one that lands after its load ended
+  /// (or after a newer pre-warm took over) must not resurrect the indicator.
+  private var prewarmGeneration = 0
+
+  /// Load the diarization model in the background so a diarizing session
+  /// starts without waiting for the CoreML compile. Gated on the last-used
+  /// separation mode, so the model never occupies memory for users who do
+  /// not diarize. Safe to call repeatedly; requests coalesce in the cache.
+  func prewarmDiarizerIfNeeded() {
+    guard settings.lastSpeakerSeparationImpliesDiarization else { return }
+    let backend = settings.diarizerBackend
+    let compute = settings.diarizerCompute
+    prewarmGeneration += 1
+    let generation = prewarmGeneration
+    Task(priority: .utility) {
+      await DiarizerModelCache.shared.prewarm(backend: backend, compute: compute) { progress in
+        Task { @MainActor in self.showDiarizerLoad(progress, generation: generation) }
+      }
+      finishDiarizerLoad(generation: generation)
+    }
+  }
+
+  private func showDiarizerLoad(_ progress: DiarizerModelLoadProgress, generation: Int) {
+    guard generation == prewarmGeneration else { return }
+    diarizerLoad = progress
+  }
+
+  private func finishDiarizerLoad(generation: Int) {
+    guard generation == prewarmGeneration else { return }
+    // Retiring the generation drops this load's still-in-flight reports.
+    prewarmGeneration += 1
+    diarizerLoad = nil
   }
 
   // MARK: - Error reporting

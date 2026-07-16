@@ -98,7 +98,9 @@ record when registering speakers).
   - **Calendars (full access)** — only when using the calendar suggestions
 - Network access on first use of each language: the on-device speech model is
   downloaded once, then everything runs offline. Speaker diarization likewise
-  downloads the selected model on first use.
+  downloads the selected model on first use; after that the loaded model is
+  kept warm (pre-loaded at launch when the previous session diarized), so
+  diarizing sessions start without a long "Preparing" phase.
 
 ## Install & run
 

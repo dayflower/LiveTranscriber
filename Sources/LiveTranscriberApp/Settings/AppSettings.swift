@@ -246,4 +246,17 @@ final class AppSettings {
   var saveFolderURL: URL {
     URL(fileURLWithPath: (saveFolderPath as NSString).expandingTildeInPath, isDirectory: true)
   }
+
+  /// Whether the most recently used separation mode runs diarization — the
+  /// gate for pre-warming the diarization model at launch. Reads the
+  /// new-session sheet's `lastSpeakerSeparation` `@AppStorage` key.
+  var lastSpeakerSeparationImpliesDiarization: Bool {
+    let mode =
+      Self.defaults.string(forKey: "lastSpeakerSeparation")
+      .flatMap(SpeakerSeparationMode.init) ?? .off
+    switch mode {
+    case .off, .source: return false
+    case .hybrid, .fluidAudio: return true
+    }
+  }
 }
