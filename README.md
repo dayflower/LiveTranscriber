@@ -53,14 +53,24 @@ record when registering speakers).
   selected sidebar row, the context menu, or the Delete key — after
   confirmation, saved transcripts move to the Trash (recoverable) and
   memory-only sessions are discarded.
-- **Per-source input gain**: while recording, click a level meter in the
-  toolbar to adjust that source's input gain (0–200%) with immediate effect;
-  the setting is remembered for future sessions.
+- **Per-source input controls**: while recording, click a level meter in the
+  toolbar to adjust that source's input gain (0–200%) and noise gate with
+  immediate effect; both are remembered for future sessions.
+- **Noise gate**: audio quieter than the threshold is treated as silence and
+  muted before it reaches the recognizer, so background noise is not
+  interpreted as speech. The activity indicator and auto-stop follow the same
+  threshold. Each source has its own — a room's background noise has nothing to
+  do with an app's. To calibrate it,
+  open the source's controls and watch the meter there: the marker is the
+  threshold, and the bar turns green while audio is passing. Put the marker
+  just above where the bar sits during silence. Too high clips quiet speech;
+  too low lets the noise through.
 - **Speech activity indicator**: a waveform icon next to the level meters
-  lights up green while speech-level audio is detected, and drives the
-  silence-based finalization and auto-stop. Detection is energy-based with a
-  short hangover — if the meters barely move and the icon stays dark, the
-  signal is too quiet to register as speech (raise the input gain).
+  lights up green while speech-level audio is detected. It follows the same
+  threshold as the noise gate, and drives the silence-based finalization and
+  auto-stop. Detection is energy-based with a short hangover — if the meters
+  barely move and the icon stays dark, the signal is too quiet to register as
+  speech (raise the input gain, or lower the noise gate).
 - **Background recording**: recording continues with the window closed; the
   menu bar item shows the state and can stop the session. The Mac never goes
   to sleep while recording; optionally the display can be kept awake too

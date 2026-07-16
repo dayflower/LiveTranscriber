@@ -407,6 +407,8 @@ struct NewSessionSheet: View {
       speakerSeparation: speakerSeparation,
       microphoneGain: Float(settings.microphoneGain),
       appAudioGain: Float(settings.appAudioGain),
+      microphoneNoiseThreshold: Float(settings.microphoneNoiseThreshold),
+      appAudioNoiseThreshold: Float(settings.appAudioNoiseThreshold),
       silenceFinalizeSeconds: settings.effectiveSilenceFinalizeSeconds,
       periodicFinalizeSeconds: settings.effectivePeriodicFinalizeSeconds,
       diarizerBackend: settings.diarizerBackend,

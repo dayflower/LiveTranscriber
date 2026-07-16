@@ -40,7 +40,9 @@ public actor CapturePipeline {
   private var appAudio: AppAudioCapture?
   private var mixers: [AudioMixer] = []
   private var levelMeters: [AudioLevelMeter] = []
-  private var activityGates: [SpeechActivityGate] = []
+  /// One gate per capture source, in every topology, so each source squelches
+  /// against its own noise floor. Keyed for live threshold adjustment.
+  private var activityGates: [AudioSource: SpeechActivityGate] = [:]
   private var engineTasks: [Task<Void, Never>] = []
   private var diarizers: [AudioSource: SpeakerDiarizer] = [:]
   private var stopped = false
@@ -104,6 +106,20 @@ public actor CapturePipeline {
     switch source {
     case .microphone: microphoneGain.set(value)
     case .appAudio: appAudioGain.set(value)
+    }
+  }
+
+  /// Adjust one source's squelch threshold (linear RMS) while audio flows.
+  /// No-op before `start()` has built the gates, or when speech-activity
+  /// detection is disabled.
+  public func setNoiseThreshold(_ value: Float, for source: AudioSource) {
+    activityGates[source]?.setThreshold(value)
+  }
+
+  private func noiseThreshold(for source: AudioSource) -> Float {
+    switch source {
+    case .microphone: configuration.microphoneNoiseThreshold
+    case .appAudio: configuration.appAudioNoiseThreshold
     }
   }
 
@@ -189,30 +205,48 @@ public actor CapturePipeline {
     }
   }
 
-  /// Build one source's activity gate: transitions feed the shared merger
-  /// (or the events stream directly) and arm/cancel that engine's
-  /// silence-driven finalize.
-  private func makeActivityGate(
-    engine: TranscriptionEngine,
+  /// Build one source's gate, starting at that source's configured noise
+  /// threshold. The gate squelches its stream and reports speech presence to
+  /// `onChange`; what that drives differs per topology, so callers compose it.
+  private func makeGate(
+    for source: AudioSource,
     onChange: @escaping @Sendable (Bool) -> Void
   ) -> SpeechActivityGate {
-    let gate = SpeechActivityGate { isSpeaking in
+    let threshold = noiseThreshold(for: source)
+    let gate = SpeechActivityGate(
+      onThreshold: threshold,
+      offThreshold: threshold * SpeechActivityGate.releaseRatio,
+      onChange: onChange
+    )
+    activityGates[source] = gate
+    return gate
+  }
+
+  /// The activity sink an engine's silence-driven finalize hangs off. It must
+  /// see speech presence in *that engine's* audio, so a topology whose engine
+  /// consumes more than one gated source merges the gates before this point.
+  private static func activitySink(
+    engine: TranscriptionEngine,
+    then onChange: @escaping @Sendable (Bool) -> Void
+  ) -> @Sendable (Bool) -> Void {
+    { isSpeaking in
       onChange(isSpeaking)
       Task { await engine.noteSpeechActivity(isSpeaking: isSpeaking) }
     }
-    activityGates.append(gate)
-    return gate
   }
 
   /// Chain the stages every engine-bound stream shares, wrapping from the
   /// inside out: the engine input, the source's diarizer where it has one,
-  /// then the activity gate (`onActivity` nil means no gate). Buffers
-  /// therefore flow gate → diarizer → engine. The level meter is deliberately
-  /// not part of this chain — where it sits differs per topology.
+  /// then the gate (`nil` where the topology gates further upstream instead).
+  /// Buffers therefore flow gate → diarizer → engine, which keeps the diarizer
+  /// from placing speaker turns in squelched silence. The level meter is
+  /// deliberately not part of this chain — where it sits differs per topology,
+  /// but it always precedes the gate so the UI shows the true input level to
+  /// calibrate the threshold against.
   private func makeEngineFeed(
     engine: TranscriptionEngine,
     diarizer: SpeakerDiarizer?,
-    onActivity: (@Sendable (Bool) -> Void)?
+    gate: SpeechActivityGate?
   ) async -> @Sendable (AVAudioPCMBuffer) -> Void {
     let input = engine.input
     var feed: @Sendable (AVAudioPCMBuffer) -> Void = {
@@ -222,8 +256,7 @@ public actor CapturePipeline {
       await diarizer.start()
       feed = diarizer.tap(feed)
     }
-    if let onActivity {
-      let gate = makeActivityGate(engine: engine, onChange: onActivity)
+    if let gate {
       feed = gate.tap(feed)
     }
     return feed
@@ -267,14 +300,20 @@ public actor CapturePipeline {
         continuation.yield(.audioLevel(source: source, level: $0))
       }
       levelMeters.append(meter)
-      var onActivity: (@Sendable (Bool) -> Void)?
+      // This engine consumes exactly this one gated source, so its finalize
+      // hangs off the gate directly rather than off the merged signal.
+      var gate: SpeechActivityGate?
       if let merger {
-        onActivity = { merger.update(source, isSpeaking: $0) }
+        gate = makeGate(
+          for: source,
+          onChange: Self.activitySink(engine: entry.engine) {
+            merger.update(source, isSpeaking: $0)
+          })
       }
       let engineFeed = await makeEngineFeed(
         engine: entry.engine,
         diarizer: diarizers[source],
-        onActivity: onActivity
+        gate: gate
       )
       let engineSink = meter.tap(engineFeed)
 
@@ -304,25 +343,38 @@ public actor CapturePipeline {
     // source; separation off is the only way into the mixing path). It taps
     // the exact stream the engine consumes, so its accumulated sample offsets
     // share the transcriber's timeline origin.
-    var onActivity: (@Sendable (Bool) -> Void)?
-    if configuration.enableSpeechActivity {
-      onActivity = { continuation.yield(.speechActivity(isSpeaking: $0)) }
-    }
-    let engineFeed = await makeEngineFeed(
-      engine: engine,
-      diarizer: diarizers.values.first,
-      onActivity: onActivity
-    )
-
+    let diarizer = diarizers.values.first
     let mixing = configuration.appAudio != nil && configuration.microphoneID != nil
-    return mixing
-      ? startMixedWiring(engine: engine, engineFeed: engineFeed)
-      : directWiring(engine: engine, engineFeed: engineFeed)
+    if mixing {
+      // Gating happens per source on the inlets, so the engine feed itself
+      // carries no gate — see `startMixedWiring`.
+      let engineFeed = await makeEngineFeed(engine: engine, diarizer: diarizer, gate: nil)
+      return startMixedWiring(engine: engine, engineFeed: engineFeed)
+    }
+
+    let source: AudioSource = configuration.microphoneID != nil ? .microphone : .appAudio
+    var gate: SpeechActivityGate?
+    if configuration.enableSpeechActivity {
+      gate = makeGate(
+        for: source,
+        onChange: Self.activitySink(engine: engine) {
+          continuation.yield(.speechActivity(isSpeaking: $0))
+        })
+    }
+    let engineFeed = await makeEngineFeed(engine: engine, diarizer: diarizer, gate: gate)
+    return directWiring(engine: engine, source: source, engineFeed: engineFeed)
   }
 
   /// Both sources into one engine through the mixer. Per-source levels are
   /// measured on the mixer's inlet taps (after silence padding), not on the
   /// mixed output.
+  ///
+  /// Each source is gated on its own inlet rather than on the mix, so the two
+  /// squelch against their independent noise floors — a noisy room would
+  /// otherwise hold the gate open for silent app audio. Both inlet taps mute
+  /// their buffer in place and the mixer sums it afterwards, so the meters
+  /// still read the true pre-squelch level. The engine consumes both sources,
+  /// so its finalize hangs off the merged signal, not off either gate.
   private func startMixedWiring(
     engine: TranscriptionEngine,
     engineFeed: @escaping @Sendable (AVAudioPCMBuffer) -> Void
@@ -335,10 +387,24 @@ public actor CapturePipeline {
       continuation.yield(.audioLevel(source: .microphone, level: $0))
     }
     levelMeters.append(contentsOf: [appMeter, microphoneMeter])
+
+    var appTap = appMeter.monitor()
+    var microphoneTap = microphoneMeter.monitor()
+    if configuration.enableSpeechActivity {
+      let merger = ActivityMerger(
+        onChange: Self.activitySink(engine: engine) {
+          continuation.yield(.speechActivity(isSpeaking: $0))
+        })
+      appTap = appMeter.tap(
+        makeGate(for: .appAudio) { merger.update(.appAudio, isSpeaking: $0) }.squelching())
+      microphoneTap = microphoneMeter.tap(
+        makeGate(for: .microphone) { merger.update(.microphone, isSpeaking: $0) }.squelching())
+    }
+
     let mixer = AudioMixer(
       outputFormat: engine.audioFormat,
-      appTap: appMeter.monitor(),
-      microphoneTap: microphoneMeter.monitor(),
+      appTap: appTap,
+      microphoneTap: microphoneTap,
       sink: engineFeed,
       onError: onError
     )
@@ -358,10 +424,10 @@ public actor CapturePipeline {
   /// The lone configured source feeding its engine directly.
   private func directWiring(
     engine: TranscriptionEngine,
+    source: AudioSource,
     engineFeed: @escaping @Sendable (AVAudioPCMBuffer) -> Void
   ) -> CaptureWiring {
     let continuation = eventContinuation
-    let source: AudioSource = configuration.microphoneID != nil ? .microphone : .appAudio
     let meter = AudioLevelMeter {
       continuation.yield(.audioLevel(source: source, level: $0))
     }

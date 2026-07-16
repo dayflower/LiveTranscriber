@@ -92,9 +92,18 @@ public struct CaptureConfiguration: Sendable {
   public var appAudioGain: Float
 
   /// Derive speech-presence events from audio energy (`SpeechActivityGate`),
-  /// used for silence-driven finalization, auto-stop, and the activity
-  /// indicator.
+  /// used for silence-driven finalization, auto-stop, the activity indicator,
+  /// and the noise squelch. Disabling it also disables the squelch.
   public var enableSpeechActivity: Bool
+
+  /// Linear RMS level, per source, below which audio counts as silence: the
+  /// stream is replaced with digital silence before it reaches the recognizer,
+  /// so a bare noise floor cannot be transcribed into phantom words. Measured
+  /// on the post-gain stream, where speech runs 0.02...0.3 and noise floors
+  /// stay below 0.01. Adjustable while recording via
+  /// `CapturePipeline.setNoiseThreshold(_:for:)`.
+  public var microphoneNoiseThreshold: Float
+  public var appAudioNoiseThreshold: Float
 
   /// Force-finalize the pending volatile region after this many seconds of
   /// detected silence (0 = off). Requires speech-activity detection.
@@ -125,6 +134,10 @@ public struct CaptureConfiguration: Sendable {
   /// the audio clock, but a higher rate can slightly lower latency.
   public var captureFrameRate: Int
 
+  /// Trigger level a source's squelch starts at. Speech measures 0.02...0.3
+  /// and noise floors stay below 0.01, so this sits between the two.
+  public static let defaultNoiseThreshold: Float = 0.015
+
   public init(
     localeIdentifier: String = Locale.current.identifier,
     microphoneID: String? = nil,
@@ -133,6 +146,8 @@ public struct CaptureConfiguration: Sendable {
     microphoneGain: Float = 1,
     appAudioGain: Float = 1,
     enableSpeechActivity: Bool = true,
+    microphoneNoiseThreshold: Float = CaptureConfiguration.defaultNoiseThreshold,
+    appAudioNoiseThreshold: Float = CaptureConfiguration.defaultNoiseThreshold,
     silenceFinalizeSeconds: TimeInterval = 2,
     periodicFinalizeSeconds: TimeInterval = 30,
     diarizerBackend: DiarizerBackend = .sortformer,
@@ -148,6 +163,8 @@ public struct CaptureConfiguration: Sendable {
     self.microphoneGain = microphoneGain
     self.appAudioGain = appAudioGain
     self.enableSpeechActivity = enableSpeechActivity
+    self.microphoneNoiseThreshold = microphoneNoiseThreshold
+    self.appAudioNoiseThreshold = appAudioNoiseThreshold
     self.silenceFinalizeSeconds = silenceFinalizeSeconds
     self.periodicFinalizeSeconds = periodicFinalizeSeconds
     self.diarizerBackend = diarizerBackend

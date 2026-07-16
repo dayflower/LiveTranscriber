@@ -82,6 +82,17 @@ final class AppSettings {
     didSet { Self.defaults.set(appAudioGain, forKey: "appAudioGain") }
   }
 
+  /// Linear RMS level below which a source is treated as silent and squelched
+  /// before recognition, so a bare noise floor cannot turn into phantom words.
+  /// Adjusted from the toolbar level meters while recording.
+  var microphoneNoiseThreshold: Double {
+    didSet { Self.defaults.set(microphoneNoiseThreshold, forKey: "microphoneNoiseThreshold") }
+  }
+
+  var appAudioNoiseThreshold: Double {
+    didSet { Self.defaults.set(appAudioNoiseThreshold, forKey: "appAudioNoiseThreshold") }
+  }
+
   /// Force-finalize after `silenceFinalizeSeconds` of detected silence.
   var silenceFinalizeEnabled: Bool {
     didSet { Self.defaults.set(silenceFinalizeEnabled, forKey: "silenceFinalizeEnabled") }
@@ -171,6 +182,12 @@ final class AppSettings {
 
     microphoneGain = d.object(forKey: "microphoneGain") as? Double ?? 1
     appAudioGain = d.object(forKey: "appAudioGain") as? Double ?? 1
+
+    let defaultThreshold = Double(CaptureConfiguration.defaultNoiseThreshold)
+    microphoneNoiseThreshold =
+      d.object(forKey: "microphoneNoiseThreshold") as? Double ?? defaultThreshold
+    appAudioNoiseThreshold =
+      d.object(forKey: "appAudioNoiseThreshold") as? Double ?? defaultThreshold
 
     // Legacy convention stored 0 seconds for "off"; migrate that to the
     // explicit toggles and keep the seconds at their defaults.

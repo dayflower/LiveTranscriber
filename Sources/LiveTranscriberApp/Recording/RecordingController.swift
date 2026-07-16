@@ -68,6 +68,13 @@ final class RecordingController {
     pipeline?.setGain(value, for: source)
   }
 
+  /// Live-adjust one source's squelch threshold; no-op when nothing is
+  /// recording.
+  func setNoiseThreshold(_ value: Float, for source: AudioSource) {
+    guard let pipeline else { return }
+    Task { await pipeline.setNoiseThreshold(value, for: source) }
+  }
+
   func start(plan: SessionPlan) {
     guard phase == .idle else { return }
     phase = .preparing

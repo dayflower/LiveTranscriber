@@ -1,3 +1,4 @@
+import AVFAudio
 import Foundation
 import Testing
 
@@ -110,5 +111,76 @@ struct SpeechActivityGateTests {
     harness.advance(to: 3)
     harness.gate.ingest(rms: 0.2)
     #expect(harness.recorded == [true, false, true])
+  }
+
+  @Test func thresholdChangesWhileFlowing() {
+    let harness = Harness()
+    // Below the 0.1 trigger the gate stays shut...
+    harness.gate.ingest(rms: 0.08)
+    #expect(harness.recorded.isEmpty)
+
+    // ...until the trigger drops under it.
+    harness.gate.setThreshold(0.05)
+    harness.gate.ingest(rms: 0.08)
+    #expect(harness.recorded == [true])
+  }
+
+  // MARK: - Squelch
+
+  private func buffer(_ samples: [Float]) -> AVAudioPCMBuffer {
+    let format = AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+    let buffer = AVAudioPCMBuffer(
+      pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
+    buffer.frameLength = AVAudioFrameCount(samples.count)
+    samples.withUnsafeBufferPointer { source in
+      buffer.floatChannelData![0].update(from: source.baseAddress!, count: samples.count)
+    }
+    return buffer
+  }
+
+  private func samples(of buffer: AVAudioPCMBuffer) -> [Float] {
+    Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+  }
+
+  /// Feeds one buffer through `tap` and returns what the engine would see.
+  private func passed(_ gate: SpeechActivityGate, _ input: [Float]) -> [Float] {
+    nonisolated(unsafe) var forwarded: AVAudioPCMBuffer?
+    gate.tap { forwarded = $0 }(buffer(input))
+    return samples(of: forwarded!)
+  }
+
+  @Test func quietBuffersAreSilencedButStillForwarded() {
+    let harness = Harness()
+    // RMS 0.02, under the 0.1 trigger: the buffer must still reach the
+    // analyzer (it sequences buffers contiguously) but carry no signal.
+    #expect(passed(harness.gate, [0.02, -0.02, 0.02, -0.02]) == [0, 0, 0, 0])
+  }
+
+  @Test func loudBuffersPassThroughUntouched() {
+    let harness = Harness()
+    #expect(passed(harness.gate, [0.2, -0.2, 0.2, -0.2]) == [0.2, -0.2, 0.2, -0.2])
+  }
+
+  @Test func hangoverKeepsQuietBuffersAudible() {
+    let harness = Harness()
+    #expect(passed(harness.gate, [0.2, -0.2]) == [0.2, -0.2])
+
+    // A pause between words: quiet, but within the hangover, so the tail is
+    // not chopped off.
+    harness.advance(to: 0.5)
+    #expect(passed(harness.gate, [0.01, -0.01]) == [0.01, -0.01])
+
+    harness.advance(to: 2)
+    #expect(passed(harness.gate, [0.01, -0.01]) == [0, 0])
+  }
+
+  @Test func squelchingSinkMutesInPlace() {
+    let harness = Harness()
+    // The mixer reads the buffer back after its inlet tap returns, so muting
+    // has to land on the buffer itself rather than on a forwarded copy.
+    let input = buffer([0.02, -0.02])
+    harness.gate.squelching()(input)
+    #expect(samples(of: input) == [0, 0])
   }
 }

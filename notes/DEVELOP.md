@@ -60,7 +60,7 @@ Two targets plus tests:
   | `MicrophoneCapture.swift` | AVCaptureSession microphone capture + device listing |
   | `AudioMixer.swift` | Wall-clock mixer combining app + mic into one contiguous stream (single-inlet use doubles as a silence padder) |
   | `AudioLevelMeter.swift` | RMS taps for the per-source UI level meters |
-  | `SpeechActivityGate.swift` | Energy-based speech-presence detection (RMS hysteresis + hangover) feeding `speechActivity` events and silence finalize |
+  | `SpeechActivityGate.swift` | Energy-based speech-presence detection (RMS hysteresis + hangover) feeding `speechActivity` events and silence finalize, and squelching its source below the noise threshold |
   | `AudioGain.swift` | Per-source adjustable gain taps, applied before metering |
   | `SourceMergers.swift` | `ActivityMerger`: folds two engines' speech-activity events into one session-level signal |
   | `SpeakerDiarizer.swift` | FluidAudio diarization actor (one per diarized stream): taps its engine's stream, emits `.diarization` snapshots |
@@ -97,8 +97,9 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
      AsyncStream<AnalyzerInput> ──▶ SpeechAnalyzer(modules: transcriber)
                                                         ▼
             transcriber.results ──▶ TranscriptionEvent stream ──▶ UI
-     (a SpeechActivityGate taps the engine-bound stream and emits
-      speechActivity events / arms the engine's silence finalize)
+     (a SpeechActivityGate per source squelches it below the noise
+      threshold, emits speechActivity events, and arms the engine's
+      silence finalize)
 ```
 
 - Each capture converts buffers to the target format on its own serial queue
@@ -226,6 +227,21 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   that scales samples in place before the level meter and the mixer/engine,
   so meters show post-gain levels — what the recognizer actually hears.
   Gains are seeded from `CaptureConfiguration` (persisted in `AppSettings`).
+- **Noise squelch**: every source carries its own `SpeechActivityGate`, which
+  replaces that source's audio with digital silence while its level sits below
+  the configured threshold, so an idle room's noise floor is never offered to
+  the recognizer as something to interpret. Muting, never dropping: the
+  analyzer sequences buffers contiguously, so a dropped buffer would shift
+  every later timestamp. The gate always sits *after* that
+  source's level meter (in the mixing topology, as its inlet tap, muting in
+  place before the mixer sums it), so the meters keep showing the true input
+  level to calibrate the threshold against. Thresholds are per source
+  (`CapturePipeline.setNoiseThreshold(_:for:)`, driven live from the toolbar
+  meters, persisted in `AppSettings`) because a room's noise floor has nothing
+  to do with app audio's. Gating per source rather than on the mix also keeps
+  a noisy microphone from holding the gate open for silent app audio; the
+  mixed topology's single engine therefore takes its silence finalize from the
+  OR-merged signal (`SourceMergers.swift`), not from either gate.
 - **No buffer timestamps**: `AnalyzerInput` is fed without `bufferStartTime`.
   Sample-rate conversion rounds buffer lengths, so source timestamps would
   overlap ("timestamp overlaps or precedes" errors); the analyzer sequences
@@ -308,9 +324,11 @@ user action.
   hysteresis with a hangover, plus a watchdog task so the silent transition
   fires during ScreenCaptureKit's bufferless system silence. Being
   energy-based it cannot tell speech from music — app audio carrying BGM
-  reads as continuous speech. Thresholds (on 0.015 / off 0.0075 linear RMS,
-  post-gain) are compile-time defaults; revisit if real-world noise floors
-  prove them wrong.
+  reads as continuous speech, and never gets squelched. The trigger threshold
+  (0.015 linear RMS post-gain by default, release at half that) is per source
+  and user-adjustable; because the same decision drives the squelch, setting
+  it too high clips quiet speech, and too low lets the noise floor through to
+  be transcribed.
 - Ad-hoc signing vs TCC: see the bundle section above.
 - The model download for a new locale happens during session preparation and
   is reported on the event stream (`.modelDownload`). The selected FluidAudio
