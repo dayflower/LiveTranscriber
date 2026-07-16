@@ -110,7 +110,10 @@ macOS attributes the permission grants to the app.
    **Fill from Calendar Event…**. These choices are remembered for the next
    session.
 2. Speak, or let the target app play audio. In-progress text appears dimmed at
-   the bottom; finalized lines accumulate above it.
+   the bottom; finalized lines accumulate above it. The log follows the latest
+   line only while it is scrolled to the bottom, so you can read back through a
+   recording without being pulled down again. Scrolling back to the bottom —
+   or **Jump to Latest** (⌘↓) — resumes following.
 3. Stop with the toolbar button, ⌘., or from the menu bar icon. Closing the
    window does not stop the recording.
 4. The session name (window title) can be edited at any time; the saved file
