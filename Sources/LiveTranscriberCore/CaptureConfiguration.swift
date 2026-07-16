@@ -98,9 +98,9 @@ public struct CaptureConfiguration: Sendable {
 
   /// Linear RMS level, per source, below which audio counts as silence: the
   /// stream is replaced with digital silence before it reaches the recognizer,
-  /// so a bare noise floor cannot be transcribed into phantom words. Measured
-  /// on the post-gain stream, where speech runs 0.02...0.3 and noise floors
-  /// stay below 0.01. Adjustable while recording via
+  /// so a bare noise floor is never offered to it as something to interpret.
+  /// Measured on the post-gain stream, where speech runs 0.02...0.3 and noise
+  /// floors stay below 0.01. Adjustable while recording via
   /// `CapturePipeline.setNoiseThreshold(_:for:)`.
   public var microphoneNoiseThreshold: Float
   public var appAudioNoiseThreshold: Float
@@ -109,8 +109,9 @@ public struct CaptureConfiguration: Sendable {
   /// detected silence (0 = off). Requires speech-activity detection.
   public var silenceFinalizeSeconds: TimeInterval
 
-  /// Force-finalize the pending volatile region every N seconds regardless
-  /// of speech activity (0 = off).
+  /// Force-finalize the pending volatile region every N seconds of speech
+  /// (0 = off). Ticks during silence are skipped: there is nothing to commit
+  /// but the transcriber's hypothesis for the silence itself.
   public var periodicFinalizeSeconds: TimeInterval
 
   /// Diarization model to run when the separation mode diarizes.

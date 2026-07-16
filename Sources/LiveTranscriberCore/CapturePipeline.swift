@@ -141,7 +141,8 @@ public actor CapturePipeline {
     let options = TranscriptionEngine.Options(
       locale: locale,
       silenceFinalizeSeconds: configuration.silenceFinalizeSeconds,
-      periodicFinalizeSeconds: configuration.periodicFinalizeSeconds
+      periodicFinalizeSeconds: configuration.periodicFinalizeSeconds,
+      speechActivityGated: configuration.enableSpeechActivity
     )
 
     if usesEnginePerSource {

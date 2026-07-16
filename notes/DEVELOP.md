@@ -242,6 +242,45 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   a noisy microphone from holding the gate open for silent app audio; the
   mixed topology's single engine therefore takes its silence finalize from the
   OR-merged signal (`SourceMergers.swift`), not from either gate.
+- **Phantom results** ("あ" appearing in an empty room): there were two
+  separate causes, and the loud one was the **periodic forced finalize**, not
+  the audio — see the forced-finalization bullet below for its mechanism and
+  fix. Findings worth keeping, because each contradicts the obvious guess:
+  - *Squelching does not fix it.* The phantoms kept arriving with the gate
+    shut and the activity indicator dark, i.e. with the analyzer being fed
+    nothing but zeros. The transcriber forms a hypothesis about digital
+    silence just as readily as about a noise floor. The noise gate is worth
+    having on its own terms, but it is not what stops this.
+  - *The cadence identifies the culprit.* The phantoms tracked the configured
+    periodic-finalize interval one-for-one — the user had it at 60 s and saw
+    one per minute. Nothing else in the pipeline emits text on a timer.
+  - *The transcriber also invents words unprompted.* With the periodic tick
+    skipped, a session with no input at all still produces one: at ~8.7 s a
+    volatile "あ" spanning `0.00-8.80` (it treats the whole silent session as
+    one utterance), which it then **finalizes on its own** ~2 s later at
+    `6.54-10.80`, run `あ@6.54-7.80` — no `force` in the trace, diarizer
+    updates continuing past it, so neither a forced finalize nor the
+    stop-time flush. No forced finalize *can* run there, and app audio proves
+    it independently: with nothing playing, ScreenCaptureKit sends no buffers
+    and the padder emits exact zeros, so that gate can never open, yet its
+    engine finalizes the same phantom. Straight into the saved transcript,
+    via the streaming write.
+  - *It is the model, not chance.* Two independent `SpeechAnalyzer` instances
+    (mic and app) produced identical text at an identical run offset. Same
+    zeros in, same answer out. Fully reproducible; trace it with
+    `LT_DIARIZATION_DEBUG=1 make run`, which logs every result's
+    final/volatile flag, claimed range, and text.
+  So `consumeTranscriberResults` **drops every result until the gate has
+  reported speech at least once** (`hasHeardSpeech`). This is not a heuristic:
+  gate shut ⟺ buffers zeroed, so before the first word the transcriber
+  provably had nothing but silence to work from. It is deliberately narrow —
+  sticky, so once real speech arrives it never fires again and cannot cost a
+  trailing final or a quiet word. A general version was tried and rejected:
+  dropping any result starting after the gate *last* shut (via a fed-frame
+  clock) would also catch phantoms after a meeting ends, but it stays armed
+  for the whole session, and silently deleting real transcript is a far worse
+  failure than one stray "あ". Revisit only with evidence of phantoms *after*
+  speech.
 - **No buffer timestamps**: `AnalyzerInput` is fed without `bufferStartTime`.
   Sample-rate conversion rounds buffer lengths, so source timestamps would
   overlap ("timestamp overlaps or precedes" errors); the analyzer sequences
@@ -253,7 +292,14 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   indefinitely, so the engine finalizes the pending volatile region after N
   seconds of detected silence (default 2 s) and on a periodic timer (default
   30 s). Both are settings with independent on/off toggles; a disabled rule
-  reaches the pipeline as 0 seconds (its "off" sentinel).
+  reaches the pipeline as 0 seconds (its "off" sentinel). The periodic timer
+  **skips its tick while the gate reports silence**. This is the phantom-word
+  fix: `finalize(through:)` commits whatever hypothesis the transcriber
+  currently holds, and during silence that is only its guess *about* the
+  silence — normally retracted, never surfaced, until the timer drags it out
+  as a real segment. The phantoms matched the configured interval one-for-one.
+  Silence has no long speech to break up, so the tick had nothing legitimate
+  to do anyway.
 
 ## Sessions & persistence
 

@@ -7,9 +7,13 @@ import Foundation
 ///
 /// The same decision squelches the stream: buffers are replaced with silence
 /// while the gate reads "not speaking", so an idle room's noise floor is never
-/// offered to the recognizer as something to interpret. Squelching mutes in
-/// place rather than dropping buffers — the analyzer sequences buffers
-/// contiguously, so a dropped one would shift every later timestamp.
+/// offered to the recognizer as something to interpret. Note this does *not*
+/// by itself stop phantom words during long silences — the transcriber forms
+/// hypotheses about digital silence just as happily (see
+/// `TranscriptionEngine.finalizePeriodically` and `hasHeardSpeech`, which
+/// between them are what stop those). Squelching mutes in place rather than
+/// dropping buffers — the analyzer sequences buffers contiguously, so a
+/// dropped one would shift every later timestamp.
 ///
 /// This replaces `SpeechDetector`, whose result stream never yields on
 /// current macOS 26 builds and occasionally fails with internal errors

@@ -20,8 +20,14 @@ actor TranscriptionEngine {
     var locale: Locale
     /// Force-finalize after this many seconds of detected silence (0 = off).
     var silenceFinalizeSeconds: TimeInterval
-    /// Force-finalize every N seconds regardless of activity (0 = off).
+    /// Force-finalize every N seconds of speech (0 = off).
     var periodicFinalizeSeconds: TimeInterval
+    /// Whether the pipeline wires speech-activity gates to this engine. Only
+    /// then does the engine learn about speech at all, which is what lets it
+    /// skip the periodic finalize during silence and ignore results produced
+    /// before any speech arrived. An ungated engine is never told, so it must
+    /// do neither: it would finalize nothing and drop everything.
+    var speechActivityGated: Bool
   }
 
   /// Format the analyzer expects; captures must convert into this.
@@ -35,6 +41,13 @@ actor TranscriptionEngine {
   private let emit: @Sendable (TranscriptionEvent) -> Void
   private var periodicFinalizeTask: Task<Void, Never>?
   private var silenceFinalizeTask: Task<Void, Never>?
+  /// What the gate last reported. Ungated engines are never told, so they
+  /// start at "always speaking" — how the engine behaved before the gate.
+  private var speechPresent: Bool
+  /// Whether the gate has *ever* reported speech. Sticky, unlike
+  /// `speechPresent`: it only opens the results gate at the first real word
+  /// and never shuts it again. Same "always" default for ungated engines.
+  private var hasHeardSpeech: Bool
 
   private init(
     analyzer: SpeechAnalyzer,
@@ -49,6 +62,8 @@ actor TranscriptionEngine {
     self.audioFormat = audioFormat
     self.input = input
     self.options = options
+    self.speechPresent = !options.speechActivityGated
+    self.hasHeardSpeech = !options.speechActivityGated
     self.emit = emit
   }
 
@@ -100,10 +115,12 @@ actor TranscriptionEngine {
     await consumeTranscriberResults()
   }
 
-  /// Speech-activity signal from the pipeline's RMS gate; arms and cancels
-  /// the silence-driven finalize.
+  /// Speech-activity signal from the pipeline's RMS gate; gates the periodic
+  /// finalize and the results, and arms/cancels the silence-driven finalize.
   func noteSpeechActivity(isSpeaking: Bool) {
+    speechPresent = isSpeaking
     if isSpeaking {
+      hasHeardSpeech = true
       silenceFinalizeTask?.cancel()
       silenceFinalizeTask = nil
     } else {
@@ -129,6 +146,18 @@ actor TranscriptionEngine {
   private func consumeTranscriberResults() async {
     do {
       for try await result in transcriber.results {
+        // Before the first word, every buffer fed was zeroed by the squelch,
+        // so anything the transcriber reports here it invented out of digital
+        // silence — it had nothing else to work from. That is not a worry but
+        // an observed behavior: ~8.7 s into a silent session it emits a
+        // volatile "あ" spanning the whole session, then finalizes it on its
+        // own ~2 s later, unforced, straight into the saved transcript. Two
+        // independent analyzers do it identically (same text, same run at
+        // 6.54-7.80), so it is a property of the model on silence, not noise.
+        //
+        // Deliberately narrow: once real speech has arrived this never fires
+        // again, so it cannot cost us a trailing final or a quiet word.
+        guard hasHeardSpeech else { continue }
         let start = result.range.start.seconds
         let end = result.range.end.seconds
         // Per-run timings let the app split a finalized segment where the
@@ -190,9 +219,20 @@ actor TranscriptionEngine {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(interval))
         guard !Task.isCancelled, let self else { break }
-        await self.finalizePendingVolatileRegion()
+        await self.finalizePeriodically()
       }
     }
+  }
+
+  /// Silence has no speech to chase, so a tick during it has nothing
+  /// legitimate to commit — only the transcriber's shaky volatile hypothesis
+  /// for the silence itself, which `finalize(through:)` would force into a
+  /// real segment. That is where the phantom words came from: they appeared on
+  /// this timer's cadence, with the gate shut the whole time. Skip the tick
+  /// instead.
+  private func finalizePeriodically() async {
+    guard speechPresent else { return }
+    await finalizePendingVolatileRegion()
   }
 
   private func finalizePendingVolatileRegion() async {
