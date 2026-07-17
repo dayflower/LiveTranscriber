@@ -139,8 +139,8 @@ macOS attributes the permission grants to the app.
    cost of less reliable speaker attribution), registered speakers for
    name-labeled diarization, priority applications for the
    application picker, the transcript font, size, and spacing (between
-   wrapped lines and between entries), and whether transcript rows are
-   tinted with the speaker color.
+   wrapped lines and between entries), whether transcript rows are
+   tinted with the speaker color, and the session list font and size.
 
 ## Transcript files
 

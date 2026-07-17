@@ -44,6 +44,15 @@ final class AppSettings {
     didSet { Self.defaults.set(transcriptFontSize, forKey: "transcriptFontSize") }
   }
 
+  /// Font family for the session list; empty means the system font.
+  var sidebarFontName: String {
+    didSet { Self.defaults.set(sidebarFontName, forKey: "sidebarFontName") }
+  }
+
+  var sidebarFontSize: Double {
+    didSet { Self.defaults.set(sidebarFontSize, forKey: "sidebarFontSize") }
+  }
+
   /// Extra points between wrapped lines within a transcript entry.
   var transcriptLineSpacing: Double {
     didSet { Self.defaults.set(transcriptLineSpacing, forKey: "transcriptLineSpacing") }
@@ -172,6 +181,8 @@ final class AppSettings {
     timestampsEnabled = d.object(forKey: "timestampsEnabled") as? Bool ?? true
     transcriptFontName = d.string(forKey: "transcriptFontName") ?? ""
     transcriptFontSize = d.object(forKey: "transcriptFontSize") as? Double ?? 13
+    sidebarFontName = d.string(forKey: "sidebarFontName") ?? ""
+    sidebarFontSize = d.object(forKey: "sidebarFontSize") as? Double ?? 13
     transcriptLineSpacing = d.object(forKey: "transcriptLineSpacing") as? Double ?? 0
     transcriptEntrySpacing = d.object(forKey: "transcriptEntrySpacing") as? Double ?? 10
     speakerRowTintEnabled = d.object(forKey: "speakerRowTintEnabled") as? Bool ?? true
@@ -240,7 +251,24 @@ final class AppSettings {
   /// System-font companion for timestamps and speaker badges, scaled with the
   /// transcript font (caption:body ratio at the 13 pt default is 10:13).
   var transcriptCaptionFont: Font {
-    .system(size: (transcriptFontSize * 10 / 13).rounded())
+    Self.captionFont(forBodySize: transcriptFontSize)
+  }
+
+  var sidebarFont: Font {
+    sidebarFontName.isEmpty
+      ? .system(size: sidebarFontSize)
+      : .custom(sidebarFontName, size: sidebarFontSize)
+  }
+
+  /// Companion for the session-list dates and day headers. The family stays
+  /// the system one so timestamps keep their digit spacing; only the size
+  /// follows the chosen sidebar size.
+  var sidebarCaptionFont: Font {
+    Self.captionFont(forBodySize: sidebarFontSize)
+  }
+
+  private static func captionFont(forBodySize size: Double) -> Font {
+    .system(size: (size * 10 / 13).rounded())
   }
 
   var saveFolderURL: URL {

@@ -18,13 +18,16 @@ struct SessionListView: View {
     @Bindable var model = model
     List(selection: $model.selection) {
       if let live = model.recording.liveSession {
-        Section("Recording") {
+        Section {
           LiveSessionRow(session: live)
             .tag(SessionSelection.live(live.id))
+        } header: {
+          Text("Recording")
+            .font(model.settings.sidebarCaptionFont)
         }
       }
       if !model.memorySessions.isEmpty {
-        Section("Not Saved") {
+        Section {
           ForEach(model.memorySessions) { session in
             MemorySessionRow(
               session: session,
@@ -39,11 +42,14 @@ struct SessionListView: View {
               }
             }
           }
+        } header: {
+          Text("Not Saved")
+            .font(model.settings.sidebarCaptionFont)
         }
       }
-      if !model.store.summaries.isEmpty {
-        Section("Library") {
-          ForEach(model.store.summaries) { summary in
+      ForEach(SessionDay.group(model.store.summaries)) { day in
+        Section {
+          ForEach(day.summaries) { summary in
             SummaryRow(
               summary: summary,
               onDelete: model.selection == .file(summary.url)
@@ -57,6 +63,9 @@ struct SessionListView: View {
               }
             }
           }
+        } header: {
+          Text(day.title)
+            .font(model.settings.sidebarCaptionFont)
         }
       }
     }
@@ -112,6 +121,35 @@ struct SessionListView: View {
   }
 }
 
+/// One day's worth of stored sessions, used to break the library into
+/// date-headed sections. Input order (newest first) is preserved.
+private struct SessionDay: Identifiable {
+  /// Start of the day, in the current calendar.
+  let id: Date
+  var summaries: [SessionSummary]
+
+  var title: String {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(id) { return String(localized: "Today") }
+    if calendar.isDateInYesterday(id) { return String(localized: "Yesterday") }
+    return id.formatted(.dateTime.year().month().day())
+  }
+
+  static func group(_ summaries: [SessionSummary]) -> [SessionDay] {
+    let calendar = Calendar.current
+    var days: [SessionDay] = []
+    for summary in summaries {
+      let day = calendar.startOfDay(for: summary.startedAt)
+      if days.last?.id == day {
+        days[days.count - 1].summaries.append(summary)
+      } else {
+        days.append(SessionDay(id: day, summaries: [summary]))
+      }
+    }
+    return days
+  }
+}
+
 private struct LiveSessionRow: View {
   let session: TranscriptSession
 
@@ -145,7 +183,8 @@ private struct SummaryRow: View {
   let onDelete: (() -> Void)?
 
   var body: some View {
-    RowLayout(name: summary.name, startedAt: summary.startedAt) {
+    // The section header already carries the date.
+    RowLayout(name: summary.name, startedAt: summary.startedAt, showsDate: false) {
       if let onDelete {
         DeleteButton(help: "Move to Trash", action: onDelete)
       }
@@ -169,18 +208,29 @@ private struct DeleteButton: View {
 }
 
 private struct RowLayout<Accessory: View>: View {
+  @Environment(AppModel.self) private var model
+
   let name: String
   let startedAt: Date
+  var showsDate: Bool = true
   @ViewBuilder let accessory: Accessory
 
   var body: some View {
     HStack {
       VStack(alignment: .leading, spacing: 2) {
+        // The sidebar list style overrides an inherited environment font, so
+        // the name has to set it here.
         Text(name)
+          .font(model.settings.sidebarFont)
           .lineLimit(1)
-        Text(startedAt, format: .dateTime.month().day().hour().minute())
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Text(
+          startedAt,
+          format: showsDate
+            ? .dateTime.month().day().hour().minute()
+            : .dateTime.hour().minute()
+        )
+        .font(model.settings.sidebarCaptionFont)
+        .foregroundStyle(.secondary)
       }
       Spacer()
       accessory

@@ -477,6 +477,24 @@ private struct AppearanceSettings: View {
         .lineSpacing(settings.transcriptLineSpacing)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+
+      Section("Sidebar") {
+        Picker("Font", selection: $settings.sidebarFontName) {
+          Text("System Default").tag("")
+          Divider()
+          ForEach(fontFamilies, id: \.self) { family in
+            Text(family).tag(family)
+          }
+        }
+
+        Stepper(value: $settings.sidebarFontSize, in: 9...36, step: 1) {
+          LabeledContent("Size", value: "\(Int(settings.sidebarFontSize)) pt")
+        }
+
+        Text("Session dates and day headers keep the system font and follow this size.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     }
     .formStyle(.grouped)
   }
