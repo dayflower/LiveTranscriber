@@ -248,12 +248,6 @@ final class AppSettings {
       : .custom(transcriptFontName, size: transcriptFontSize)
   }
 
-  /// System-font companion for timestamps and speaker badges, scaled with the
-  /// transcript font (caption:body ratio at the 13 pt default is 10:13).
-  var transcriptCaptionFont: Font {
-    Self.captionFont(forBodySize: transcriptFontSize)
-  }
-
   var sidebarFont: Font {
     sidebarFontName.isEmpty
       ? .system(size: sidebarFontSize)

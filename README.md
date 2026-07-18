@@ -18,7 +18,9 @@ record when registering speakers).
   mixed. Frequently used applications can be pinned as priority applications
   in Settings so they appear at the top of the picker.
 - **Live transcript**: in-progress text updates in place; finalized text
-  accumulates as a log, optionally with timestamps.
+  accumulates as a log, optionally with timestamps. The transcript is one
+  selectable document — selection and copy can span entries, and Edit > Find
+  (Cmd+F) searches it.
 - **Speaker separation (optional)**: label transcript lines by audio source
   (`Mic` / `App` — each source gets its own recognizer), or by anonymous
   speaker (`Mic Speaker 1`, `App Speaker 1`, …) using on-device diarization

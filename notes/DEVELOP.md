@@ -322,6 +322,58 @@ AVCaptureSession ──CMSampleBuffer──▶ MicrophoneCapture ─┤ convert 
   Silence has no long speech to break up, so the tick had nothing legitimate
   to do anyway.
 
+## Transcript rendering
+
+The transcript body is a single read-only, selectable `NSTextView` (TextKit 2)
+bridged via `NSViewRepresentable` — `Views/TranscriptTextView.swift` — so text
+selection and copy can span utterances (SwiftUI `Text` selection cannot cross
+view boundaries). `Views/TranscriptView.swift` remains the SwiftUI shell:
+title/subtitle, the jump-to-latest overlay, and the pin-to-bottom `@State`.
+
+- **Document building** lives in `Views/TranscriptRenderer.swift`, a pure
+  layer unit-tested by `TranscriptRendererTests`. One segment = one
+  newline-terminated paragraph, `timestamp <tab> speaker <tab> body`, with
+  tab stops at session-wide column positions (`TranscriptColumns`: the
+  timestamp column sized by a widest-case reference time, the speaker
+  column by the longest current name) so every row's body starts at the
+  same x; a hanging `headIndent` aligns wrapped lines under the body
+  column, and a column-width change triggers a full re-render. Speaker
+  colors are palette indexes assigned by first appearance. Row decorations
+  are custom attributes drawn by a `NSTextLayoutFragment` subclass, so they
+  never leak into a plain-text copy: `.transcriptRowTint` fills the full
+  container width and `.transcriptSpeakerBadge` draws the speaker-name
+  capsule from the run's line-fragment geometry.
+- **TextKit 2 fragment-drawing quirks** (all bitten once): a fragment's
+  local origin sits at the paragraph's first-line indent, not the
+  container's left edge — full-width fills must start at
+  `-layoutFragmentFrame.minX`. `renderingSurfaceBounds` must be widened or
+  fills clip to the typographic bounds. The tint's vertical extent comes
+  from baselines ± font ascent/descent, because line-fragment frames absorb
+  `lineSpacing` above lines and TextKit appends a zero-length extra line
+  after the document's trailing newline. `lineSpacing` also lands above the
+  next paragraph's first line, so `paragraphSpacing` subtracts it to keep
+  the visual entry gap constant.
+- **Incremental updates**: the coordinator tracks per-paragraph
+  `(id, fingerprint, length)` rows. On each update it finds the first
+  divergent paragraph and rewrites only that suffix — a live append touches
+  nothing before the end, a volatile tick replaces only the trailing volatile
+  range (so a selection held in finalized text survives recording), and a
+  retroactive diarization relabel/split rewrites from the first changed
+  paragraph (fingerprints include the color index because relabeling an early
+  segment can shift later palette assignments). A session switch or a
+  settings/style change rebuilds the whole document.
+- **TextKit 2 only**: the stack is assembled manually
+  (`NSTextContentStorage` + `NSTextLayoutManager`); never access
+  `textView.layoutManager`, which silently downgrades to TextKit 1 and stops
+  the fragment delegate. Layout is lazy on estimated heights, so jumping to
+  the bottom of a freshly loaded session needs
+  `ensureLayout(for: documentRange)` first.
+- **Follow-bottom**: `NSScrollView.didLiveScrollNotification` fires only for
+  user-driven scrolling, so the coordinator pins/unpins purely from the
+  distance to the bottom (threshold 40 pt; the elastic bounce yields ≤ 0 and
+  stays pinned) and auto-scrolls on edits only while pinned. The SwiftUI
+  jump-to-latest button re-pins through the `isPinnedToBottom` binding.
+
 ## Sessions & persistence
 
 - The save folder **is** the history. `SessionStore` scans it for
