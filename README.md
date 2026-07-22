@@ -134,17 +134,20 @@ macOS attributes the permission grants to the app.
    window does not stop the recording.
 4. The session name (window title) can be edited at any time; the saved file
    is renamed accordingly.
-5. Settings (⌘,) hold the save folder, file format, timestamps, the
-   auto-stop behavior, the diarization model, the compute units it runs on
-   (Automatic, or pin it to CPU only / CPU + GPU / CPU + Neural Engine / all,
-   trading throughput for lower CPU load), the minimum speaker-turn
-   duration for diarization
-   (shorter turns are ignored; lower it to pick up brief interjections at the
-   cost of less reliable speaker attribution), registered speakers for
-   name-labeled diarization, priority applications for the
-   application picker, the transcript font, size, and spacing (between
-   wrapped lines and between entries), whether transcript rows are
-   tinted with the speaker color, and the session list font and size.
+5. Settings (⌘,) are split into five tabs:
+   - **Output** — save folder, file format, timestamps.
+   - **Recording** — segment finalization, the auto-stop behavior, and
+     whether the display is kept awake.
+   - **Speakers** — the diarization model, the compute units it runs on
+     (Automatic, or pin it to CPU only / CPU + GPU / CPU + Neural Engine /
+     all, trading throughput for lower CPU load), the minimum speaker-turn
+     duration (shorter turns are ignored; lower it to pick up brief
+     interjections at the cost of less reliable speaker attribution), and
+     registered speakers for name-labeled diarization.
+   - **Applications** — priority applications for the application picker.
+   - **Appearance** — the transcript font, size, and spacing (between
+     wrapped lines and between entries), whether transcript rows are tinted
+     with the speaker color, and the session list font and size.
 
 ## Transcript files
 

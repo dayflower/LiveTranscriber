@@ -2,24 +2,93 @@ import AppKit
 import LiveTranscriberCore
 import SwiftUI
 
+private enum SettingsTab: Hashable {
+  case output, recording, speakers, applications, appearance
+}
+
+/// Width of one column in the two-column tabs. The whole window is two of
+/// these wide, so single-column tabs get the same width as the split ones and
+/// only the height changes when switching.
+private let settingsColumnWidth: CGFloat = 350
+
 struct SettingsView: View {
+  @State private var selection: SettingsTab = .output
+  @State private var heights: [SettingsTab: CGFloat] = [:]
+  /// The height currently on screen. Kept separate from `heights` so a tab
+  /// whose content has not been measured yet holds the previous height and
+  /// then animates into place, rather than snapping.
+  @State private var shownHeight: CGFloat?
+
   var body: some View {
-    TabView {
-      Tab("Output", systemImage: "folder") {
-        OutputSettings()
+    TabView(selection: $selection) {
+      Tab("Output", systemImage: "folder", value: SettingsTab.output) {
+        OutputSettings().settingsTab(.output, heights: $heights)
       }
-      Tab("Recording", systemImage: "waveform") {
-        RecordingSettings()
+      Tab("Recording", systemImage: "waveform", value: SettingsTab.recording) {
+        RecordingSettings().settingsTab(.recording, heights: $heights)
       }
-      Tab("Speakers", systemImage: "person.2") {
-        SpeakerSettings()
+      Tab("Speakers", systemImage: "person.2", value: SettingsTab.speakers) {
+        SpeakerSettings().settingsTab(.speakers, heights: $heights)
       }
-      Tab("Appearance", systemImage: "textformat") {
-        AppearanceSettings()
+      Tab("Applications", systemImage: "macwindow", value: SettingsTab.applications) {
+        ApplicationSettings().settingsTab(.applications, heights: $heights)
+      }
+      Tab("Appearance", systemImage: "textformat", value: SettingsTab.appearance) {
+        AppearanceSettings().settingsTab(.appearance, heights: $heights)
       }
     }
-    .frame(width: 460)
+    .frame(width: settingsColumnWidth * 2, height: shownHeight)
     .scenePadding()
+    .onChange(of: heights[selection], initial: true) { _, measured in
+      guard let measured else { return }
+      // Resizing the window in one step reads as a jump; growing the content
+      // frame over a beat makes AppKit follow along, as Safari's tabs do.
+      withAnimation(.smooth(duration: 0.3)) { shownHeight = capped(measured) }
+    }
+  }
+
+  /// A tall tab (the Appearance preview grows with the chosen font size) must
+  /// still fit the display; past the cap `settingsTab`'s scroll view takes over.
+  private func capped(_ height: CGFloat) -> CGFloat {
+    min(height, (NSScreen.main?.visibleFrame.height ?? 800) - 140)
+  }
+}
+
+/// Two grouped forms side by side. Splitting a tab's sections across them
+/// keeps the settings window wide and short instead of a tall column.
+private struct SettingsColumns<Left: View, Right: View>: View {
+  @ViewBuilder let left: Left
+  @ViewBuilder let right: Right
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 0) {
+      Form { left }
+        .frame(width: settingsColumnWidth)
+      Form { right }
+        .frame(width: settingsColumnWidth)
+    }
+  }
+}
+
+extension View {
+  /// Grouped form styling plus the height the settings window sizes itself to.
+  /// `.fixedSize` keeps the form at its intrinsic height instead of filling the
+  /// frame we then derive from it — without it the measurement would just
+  /// report back whatever height was imposed. The enclosing scroll view only
+  /// engages when that intrinsic height exceeds the cap above.
+  fileprivate func settingsTab(
+    _ tab: SettingsTab, heights: Binding<[SettingsTab: CGFloat]>
+  ) -> some View {
+    ScrollView {
+      formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) {
+          $0.size.height
+        } action: {
+          heights.wrappedValue[tab] = $0
+        }
+    }
+    .scrollBounceBehavior(.basedOnSize)
   }
 }
 
@@ -54,7 +123,6 @@ private struct OutputSettings: View {
       .font(.caption)
       .foregroundStyle(.secondary)
     }
-    .formStyle(.grouped)
     .onChange(of: settings.saveFolderPath) {
       model.store.folderDidChange()
     }
@@ -77,33 +145,43 @@ private struct RecordingSettings: View {
 
   var body: some View {
     @Bindable var settings = model.settings
-    Form {
+    SettingsColumns {
       Section("Segment finalization") {
-        Toggle("Finalize after silence", isOn: $settings.silenceFinalizeEnabled)
-        Stepper(value: $settings.silenceFinalizeSeconds, in: 0.5...10, step: 0.5) {
-          LabeledContent("Silence duration", value: secondsLabel(settings.silenceFinalizeSeconds))
-        }
-        .dimmedWhenDisabled(enabled: settings.silenceFinalizeEnabled)
+        ToggledStepperRow(
+          title: "Finalize after silence",
+          isOn: $settings.silenceFinalizeEnabled,
+          value: $settings.silenceFinalizeSeconds,
+          range: 0.5...10, step: 0.5, valueLabel: secondsLabel)
 
-        Toggle("Force-finalize periodically", isOn: $settings.periodicFinalizeEnabled)
-        Stepper(value: $settings.periodicFinalizeSeconds, in: 5...120, step: 5) {
-          LabeledContent("Interval", value: secondsLabel(settings.periodicFinalizeSeconds))
-        }
-        .dimmedWhenDisabled(enabled: settings.periodicFinalizeEnabled)
+        ToggledStepperRow(
+          title: "Force-finalize every",
+          isOn: $settings.periodicFinalizeEnabled,
+          value: $settings.periodicFinalizeSeconds,
+          range: 5...120, step: 5, valueLabel: secondsLabel)
       }
 
-      Section("Automatic stop") {
-        Toggle("Stop after silence", isOn: $settings.autoStopSilenceEnabled)
-        Stepper(value: $settings.autoStopSilenceSeconds, in: 10...600, step: 10) {
-          LabeledContent("Silence duration", value: secondsLabel(settings.autoStopSilenceSeconds))
-        }
-        .dimmedWhenDisabled(enabled: settings.autoStopSilenceEnabled)
+      Section("Power") {
+        Toggle("Keep the display awake", isOn: $settings.keepDisplayAwake)
 
-        Toggle("Hard time limit", isOn: $settings.hardLimitEnabled)
-        Stepper(value: $settings.hardLimitExtraMinutes, in: 0...240, step: 5) {
-          LabeledContent("Margin", value: "\(settings.hardLimitExtraMinutes) min")
-        }
-        .dimmedWhenDisabled(enabled: settings.hardLimitEnabled)
+        Text(
+          "The Mac never sleeps while recording. This additionally keeps the display from turning off."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+    } right: {
+      Section("Automatic stop") {
+        ToggledStepperRow(
+          title: "Stop after silence",
+          isOn: $settings.autoStopSilenceEnabled,
+          value: $settings.autoStopSilenceSeconds,
+          range: 10...600, step: 10, valueLabel: secondsLabel)
+
+        ToggledStepperRow(
+          title: "Hard time limit",
+          isOn: $settings.hardLimitEnabled,
+          value: $settings.hardLimitExtraMinutes,
+          range: 0...240, step: 5, valueLabel: { "\($0) min" })
 
         Text(
           "Both rules need an estimated duration. Once it has passed, recording stops after the configured silence; the hard limit (estimated duration + margin) stops it even during speech."
@@ -111,7 +189,49 @@ private struct RecordingSettings: View {
         .font(.caption)
         .foregroundStyle(.secondary)
       }
+    }
+  }
 
+  private func secondsLabel(_ value: Double) -> String {
+    let format = value.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f s" : "%.1f s"
+    return String(format: format, value)
+  }
+}
+
+/// A toggle and the duration it governs, on a single form row.
+private struct ToggledStepperRow<V: Strideable>: View {
+  let title: LocalizedStringKey
+  @Binding var isOn: Bool
+  @Binding var value: V
+  let range: ClosedRange<V>
+  let step: V.Stride
+  let valueLabel: (V) -> String
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Toggle(title, isOn: $isOn)
+
+      Spacer(minLength: 12)
+
+      HStack(spacing: 4) {
+        Text(valueLabel(value))
+          .monospacedDigit()
+          .frame(width: 56, alignment: .trailing)
+        Stepper(value: $value, in: range, step: step) { EmptyView() }
+          .labelsHidden()
+      }
+      .dimmedWhenDisabled(enabled: isOn)
+    }
+  }
+}
+
+private struct SpeakerSettings: View {
+  @Environment(AppModel.self) private var model
+  @State private var showingAddSheet = false
+
+  var body: some View {
+    @Bindable var settings = model.settings
+    SettingsColumns {
       Section {
         Picker("Diarization model", selection: $settings.diarizerBackend) {
           Text("Sortformer").tag(DiarizerBackend.sortformer)
@@ -138,7 +258,14 @@ private struct RecordingSettings: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
-        LabeledContent("Minimum turn duration") {
+        VStack(alignment: .leading, spacing: 2) {
+          HStack {
+            Text("Minimum turn duration")
+            Spacer()
+            Text(secondsLabel(settings.diarizerMinTurnSeconds))
+              .monospacedDigit()
+              .foregroundStyle(.secondary)
+          }
           Slider(value: $settings.diarizerMinTurnSeconds, in: 0.2...3, step: 0.1) {
             EmptyView()
           } minimumValueLabel: {
@@ -147,10 +274,6 @@ private struct RecordingSettings: View {
             Text(verbatim: "3")
           }
           .controlSize(.small)
-          .frame(width: 180)
-          Text(secondsLabel(settings.diarizerMinTurnSeconds))
-            .monospacedDigit()
-            .frame(width: 40, alignment: .trailing)
         }
 
         Text(
@@ -161,46 +284,36 @@ private struct RecordingSettings: View {
       } header: {
         Text("Speaker detection")
       }
-
+    } right: {
       Section {
-        Toggle("Keep the display awake", isOn: $settings.keepDisplayAwake)
-
+        EditableList(
+          items: settings.speakerProfiles,
+          height: 190,
+          placeholder: "No speakers registered.",
+          addLabel: "Add Speaker",
+          removeLabel: "Remove Speaker",
+          onAdd: { showingAddSheet = true },
+          onRemove: remove
+        ) { profile in
+          HStack {
+            Text(profile.name)
+            Spacer()
+            Text("\(Int(profile.duration.rounded())) s sample")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      } header: {
+        Text("Registered speakers")
+      } footer: {
         Text(
-          "The Mac never sleeps while recording. This additionally keeps the display from turning off."
+          "A registered voice is labeled by its name in transcripts instead of an anonymous speaker number; pick who is present when starting a session. Registered participants share the model's per-stream speaker limit with unknown voices. The recorded voice sample is stored on this Mac — the only audio the app ever saves; session audio never is."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
-      } header: {
-        Text("Power")
-      }
-
-      Section {
-        ForEach(settings.priorityApps) { app in
-          HStack {
-            Text(app.name)
-            Spacer()
-            Button {
-              settings.priorityApps.removeAll { $0.bundleID == app.bundleID }
-            } label: {
-              Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Remove \(app.name)")
-          }
-        }
-
-        Button("Add Application…") { loadCandidates() }
-          .popover(isPresented: $showingAppCandidates) { candidateList }
-      } header: {
-        Text("Priority applications")
-      } footer: {
-        Text("Listed at the top of the application picker when starting a session.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
       }
     }
-    .formStyle(.grouped)
+    .sheet(isPresented: $showingAddSheet) { AddSpeakerSheet() }
     // The cached diarization model was loaded for the previous selection;
     // drop it so its memory frees. The next pre-warm or session reloads.
     .onChange(of: settings.diarizerBackend) { invalidateDiarizerCache() }
@@ -211,54 +324,9 @@ private struct RecordingSettings: View {
     Task { await DiarizerModelCache.shared.invalidate() }
   }
 
-  @State private var showingAppCandidates = false
-  @State private var loadingCandidates = false
-  @State private var appCandidates: [AppAudioCapture.CapturableApp] = []
-  @State private var candidateError: String?
-
-  /// Listing capturable apps touches ScreenCaptureKit, which triggers the
-  /// Screen & System Audio Recording permission prompt on first use — hence
-  /// loading only on demand, not when the tab appears.
-  private func loadCandidates() {
-    loadingCandidates = true
-    showingAppCandidates = true
-    Task {
-      do {
-        let pinned = Set(model.settings.priorityApps.map(\.bundleID))
-        appCandidates = try await AppAudioCapture.availableApps()
-          .filter { !pinned.contains($0.id) }
-        candidateError = nil
-      } catch {
-        candidateError = error.localizedDescription
-        appCandidates = []
-      }
-      loadingCandidates = false
-    }
-  }
-
-  private var candidateList: some View {
-    Group {
-      if loadingCandidates {
-        ProgressView()
-      } else if let candidateError {
-        Text(candidateError).foregroundStyle(.red)
-      } else if appCandidates.isEmpty {
-        Text("No other running applications.").foregroundStyle(.secondary)
-      } else {
-        List(appCandidates) { app in
-          Button {
-            model.settings.addPriorityApp(PriorityApp(bundleID: app.id, name: app.name))
-            showingAppCandidates = false
-          } label: {
-            Text(app.name).frame(maxWidth: .infinity, alignment: .leading)
-          }
-          .buttonStyle(.plain)
-        }
-        .listStyle(.plain)
-      }
-    }
-    .frame(width: 260, height: 220)
-    .padding(loadingCandidates || candidateError != nil || appCandidates.isEmpty ? 12 : 0)
+  private func remove(_ profile: SpeakerProfile) {
+    SpeakerProfileStore().delete(for: profile.id)
+    model.settings.speakerProfiles.removeAll { $0.id == profile.id }
   }
 
   private func secondsLabel(_ value: Double) -> String {
@@ -267,7 +335,7 @@ private struct RecordingSettings: View {
   }
 }
 
-private struct SpeakerSettings: View {
+private struct ApplicationSettings: View {
   @Environment(AppModel.self) private var model
   @State private var showingAddSheet = false
 
@@ -275,46 +343,104 @@ private struct SpeakerSettings: View {
     @Bindable var settings = model.settings
     Form {
       Section {
-        if settings.speakerProfiles.isEmpty {
-          Text("No speakers registered.")
-            .foregroundStyle(.secondary)
-        }
-        ForEach(settings.speakerProfiles) { profile in
-          HStack {
-            Text(profile.name)
-            Spacer()
-            Text("\(Int(profile.duration.rounded())) s sample")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            Button {
-              remove(profile)
-            } label: {
-              Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Remove \(profile.name)")
+        EditableList(
+          items: settings.priorityApps,
+          height: 220,
+          placeholder: "No priority applications.",
+          addLabel: "Add Application",
+          removeLabel: "Remove Application",
+          onAdd: { showingAddSheet = true },
+          onRemove: { app in
+            settings.priorityApps.removeAll { $0.bundleID == app.bundleID }
           }
+        ) { app in
+          Text(app.name)
         }
-
-        Button("Add Speaker…") { showingAddSheet = true }
-          .sheet(isPresented: $showingAddSheet) { AddSpeakerSheet() }
       } header: {
-        Text("Registered speakers")
+        Text("Priority applications")
       } footer: {
-        Text(
-          "A registered voice is labeled by its name in transcripts instead of an anonymous speaker number; pick who is present when starting a session. The recorded voice sample is stored on this Mac — the only audio the app ever saves; session audio never is. Sortformer tracks up to 4 speakers per stream, so registered participants share that limit with unknown voices."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        Text("Listed at the top of the application picker when starting a session.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
     }
-    .formStyle(.grouped)
+    .sheet(isPresented: $showingAddSheet) { AddPriorityAppSheet() }
+  }
+}
+
+private struct AddPriorityAppSheet: View {
+  @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+  @State private var candidates: [AppAudioCapture.CapturableApp] = []
+  @State private var loading = true
+  @State private var loadError: String?
+  @State private var selection: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Add Priority Application")
+        .font(.headline)
+
+      Group {
+        if loading {
+          ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let loadError {
+          Text(loadError)
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+          List(candidates, selection: $selection) { app in
+            Text(app.name)
+          }
+          .listStyle(.bordered(alternatesRowBackgrounds: true))
+          .overlay {
+            if candidates.isEmpty {
+              Text("No other running applications.")
+                .foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
+      .frame(height: 240)
+
+      HStack {
+        Spacer()
+        Button("Cancel", role: .cancel) { dismiss() }
+        Button("Add") { add() }
+          .keyboardShortcut(.defaultAction)
+          .disabled(selectedApp == nil)
+      }
+    }
+    .padding(20)
+    .frame(width: 360)
+    // Listing capturable apps touches ScreenCaptureKit, which triggers the
+    // Screen & System Audio Recording permission prompt on first use — hence
+    // loading only once this sheet opens, not when the tab appears.
+    .task { await load() }
   }
 
-  private func remove(_ profile: SpeakerProfile) {
-    SpeakerProfileStore().delete(for: profile.id)
-    model.settings.speakerProfiles.removeAll { $0.id == profile.id }
+  private var selectedApp: AppAudioCapture.CapturableApp? {
+    selection.flatMap { id in candidates.first { $0.id == id } }
+  }
+
+  private func load() async {
+    do {
+      let pinned = Set(model.settings.priorityApps.map(\.bundleID))
+      candidates = try await AppAudioCapture.availableApps()
+        .filter { !pinned.contains($0.id) }
+      loadError = nil
+    } catch {
+      loadError = error.localizedDescription
+      candidates = []
+    }
+    loading = false
+  }
+
+  private func add() {
+    guard let app = selectedApp else { return }
+    model.settings.addPriorityApp(PriorityApp(bundleID: app.id, name: app.name))
+    dismiss()
   }
 }
 
@@ -435,7 +561,7 @@ private struct AppearanceSettings: View {
 
   var body: some View {
     @Bindable var settings = model.settings
-    Form {
+    SettingsColumns {
       Section("Transcript") {
         Picker("Font", selection: $settings.transcriptFontName) {
           Text("System Default").tag("")
@@ -466,18 +592,6 @@ private struct AppearanceSettings: View {
         .foregroundStyle(.secondary)
       }
 
-      Section("Preview") {
-        VStack(alignment: .leading, spacing: settings.transcriptEntrySpacing) {
-          Text(
-            "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly. 1234567890"
-          )
-          Text("Pack my box with five dozen liquor jugs.")
-        }
-        .font(settings.transcriptFont)
-        .lineSpacing(settings.transcriptLineSpacing)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-
       Section("Sidebar") {
         Picker("Font", selection: $settings.sidebarFontName) {
           Text("System Default").tag("")
@@ -495,9 +609,37 @@ private struct AppearanceSettings: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+    } right: {
+      Section("Transcript preview") {
+        VStack(alignment: .leading, spacing: settings.transcriptEntrySpacing) {
+          Text(
+            "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly. 1234567890"
+          )
+          Text("Pack my box with five dozen liquor jugs.")
+        }
+        .font(settings.transcriptFont)
+        .lineSpacing(settings.transcriptLineSpacing)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
+      Section("Sidebar preview") {
+        // One session row's worth: the name takes the chosen font, the
+        // timestamp the caption companion derived from its size.
+        HStack(alignment: .firstTextBaseline) {
+          Text("Weekly standup")
+            .font(settings.sidebarFont)
+            .lineLimit(1)
+          Spacer()
+          Text(Self.previewDate, format: .dateTime.month().day().hour().minute())
+            .font(settings.sidebarCaptionFont)
+            .foregroundStyle(.secondary)
+        }
+      }
     }
-    .formStyle(.grouped)
   }
+
+  /// Fixed so the sample timestamp does not tick while Settings is open.
+  private static let previewDate = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
   private var fontFamilies: [String] {
     NSFontManager.shared.availableFontFamilies.sorted()
