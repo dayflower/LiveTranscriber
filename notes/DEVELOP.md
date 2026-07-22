@@ -28,7 +28,7 @@ iteration, but the grants are then attributed to the **launching terminal**
 (you may need to grant/restart the terminal). To exercise the real end-user
 permission flow, run the bundle via `./scripts/make-app.sh --run`.
 `scripts/make-app.sh` assembles the bundle: it builds with SwiftPM, generates
-`Contents/Info.plist` (bundle id `com.dayflower.live-transcriber`, usage
+`Contents/Info.plist` (bundle id `io.github.dayflower.live-transcriber`, usage
 descriptions), and codesigns with `scripts/entitlements.plist` (not sandboxed,
 so no sandbox entitlements and no security-scoped bookmarks are needed).
 

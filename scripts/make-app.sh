@@ -23,7 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="LiveTranscriber"
-BUNDLE_ID="com.dayflower.live-transcriber"
+BUNDLE_ID="io.github.dayflower.live-transcriber"
 # Executable product name (Package.swift); also the app-menu title under
 # `swift run`, hence distinct from the LiveTranscriberApp target name.
 EXECUTABLE_PRODUCT="LiveTranscriber"
