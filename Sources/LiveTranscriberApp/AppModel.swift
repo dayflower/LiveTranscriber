@@ -176,6 +176,43 @@ final class AppModel {
     selection = .memory(session.id)
   }
 
+  // MARK: - Saving a memory-only session
+
+  /// The displayed session when it is memory-only, i.e. when it can still be
+  /// moved into the save folder.
+  var displayedMemorySession: TranscriptSession? {
+    guard case .memory(let id) = selection else { return nil }
+    return memorySessions.first { $0.id == id }
+  }
+
+  /// Write a memory-only session into the save folder, as if it had been
+  /// recorded with saving on, and move it to the history part of the sidebar.
+  func saveMemorySession(_ session: TranscriptSession) {
+    guard memorySessions.contains(where: { $0.id == session.id }) else { return }
+    let directory = settings.saveFolderURL
+    let formatID = settings.formatID
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let url = SessionFileWriter.availableURL(
+        in: directory,
+        preferredName: SessionFileWriter.fileName(name: session.name, startedAt: session.startedAt),
+        fileExtension: formatID.fileExtension
+      )
+      let text = formatID.format.serialize(session.makeSnapshot())
+      try Data(text.utf8).write(to: url, options: .atomic)
+
+      session.fileURL = url
+      fileSessions[url] = session
+      memorySessions.removeAll { $0.id == session.id }
+      if selection == .memory(session.id) {
+        selection = .file(url)
+      }
+      Task { await store.refresh() }
+    } catch {
+      report(error, "Could not save the transcript file")
+    }
+  }
+
   // MARK: - Export
 
   /// Whether the currently displayed session can be exported.
@@ -185,9 +222,34 @@ final class AppModel {
   }
 
   /// Export the displayed (completed) session to a user-chosen location in
-  /// the configured format — the only way to keep a memory-only session.
+  /// the configured format. `saveMemorySession` covers the common case of
+  /// keeping one in the save folder instead.
   func exportDisplayedSession() {
-    guard let session = displayedSession, !session.isRecording else { return }
+    guard let session = displayedSession else { return }
+    exportSession(session)
+  }
+
+  /// Export a stored session picked in the sidebar, loading it first when it
+  /// is not in the cache yet (the row may never have been selected).
+  func exportFileSession(at url: URL) {
+    if let session = fileSessions[url] {
+      exportSession(session)
+      return
+    }
+    Task {
+      do {
+        let session = try await store.loadSession(at: url)
+        fileSessions[url] = session
+        exportSession(session)
+      } catch {
+        report(error, "Could not read \(url.lastPathComponent)")
+      }
+    }
+  }
+
+  /// Ask for a destination and write `session` there in the configured format.
+  func exportSession(_ session: TranscriptSession) {
+    guard !session.isRecording else { return }
     let formatID = settings.formatID
 
     let panel = NSSavePanel()

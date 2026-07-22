@@ -50,8 +50,10 @@ record when registering speakers).
   language, and sources are recorded in the file header.
 - **The save folder is the history**: the sidebar lists the folder's
   transcripts alongside the live session. Sessions started with saving off
-  are kept in memory until the app quits (keep one via
-  File > Export Transcript…). Delete a session with the trash button on the
+  are kept in memory until the app quits; move one into the save folder with
+  the memory-chip button on its sidebar row, its context menu, or
+  File > Save to Library (⌘S) — or write it elsewhere with
+  File > Export Transcript…. Delete a session with the trash button on the
   selected sidebar row, the context menu, or the Delete key — after
   confirmation, saved transcripts move to the Trash (recoverable) and
   memory-only sessions are discarded.

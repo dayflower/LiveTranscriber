@@ -28,6 +28,14 @@ struct LiveTranscriberApp: App {
 
         Divider()
 
+        Button("Save to Library") {
+          if let session = model.displayedMemorySession {
+            model.saveMemorySession(session)
+          }
+        }
+        .keyboardShortcut("s")
+        .disabled(model.displayedMemorySession == nil)
+
         Button("Export Transcript…") {
           model.exportDisplayedSession()
         }

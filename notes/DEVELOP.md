@@ -406,8 +406,14 @@ title/subtitle, the jump-to-latest overlay, and the pin-to-bottom `@State`.
 - Saving is a per-session choice made in the new-session sheet (carried in
   `RecordingController.SessionPlan.saveToFile`, remembered via
   `lastSaveToFile`). Sessions started with saving off exist only in
-  `AppModel.memorySessions` and vanish on quit; File > Export Transcript…
-  serializes one to a user-chosen location.
+  `AppModel.memorySessions` and vanish on quit.
+  `AppModel.saveMemorySession` promotes one after the fact: it serializes the
+  snapshot into the save folder (same naming and collision handling as the
+  writer, via `SessionFileWriter.availableURL`), moves the session from
+  `memorySessions` to `fileSessions`, and re-selects it as `.file`. It writes
+  the completed session in one shot — the streaming header/append path is only
+  for live recordings. File > Export Transcript… still serializes one to an
+  arbitrary location.
 
 ## Auto-stop
 

@@ -31,12 +31,20 @@ struct SessionListView: View {
           ForEach(model.memorySessions) { session in
             MemorySessionRow(
               session: session,
+              onSave: { model.saveMemorySession(session) },
               onDelete: model.selection == .memory(session.id)
                 ? { pendingDeletion = .memory(session) }
                 : nil
             )
             .tag(SessionSelection.memory(session.id))
             .contextMenu {
+              Button("Save to Library") {
+                model.saveMemorySession(session)
+              }
+              Button("Export Transcript…") {
+                model.exportSession(session)
+              }
+              Divider()
               Button("Delete…", role: .destructive) {
                 pendingDeletion = .memory(session)
               }
@@ -58,6 +66,10 @@ struct SessionListView: View {
             )
             .tag(SessionSelection.file(summary.url))
             .contextMenu {
+              Button("Export Transcript…") {
+                model.exportFileSession(at: summary.url)
+              }
+              Divider()
               Button("Move to Trash…", role: .destructive) {
                 pendingDeletion = .file(summary)
               }
@@ -164,6 +176,7 @@ private struct LiveSessionRow: View {
 
 private struct MemorySessionRow: View {
   let session: TranscriptSession
+  let onSave: () -> Void
   let onDelete: (() -> Void)?
 
   var body: some View {
@@ -171,9 +184,13 @@ private struct MemorySessionRow: View {
       if let onDelete {
         DeleteButton(help: "Delete this session", action: onDelete)
       }
-      Image(systemName: "memorychip")
-        .foregroundStyle(.tertiary)
-        .help("Not saved to a file; disappears when the app quits.")
+      // The memory-only badge doubles as the one-click way out of it.
+      Button(action: onSave) {
+        Image(systemName: "memorychip")
+      }
+      .buttonStyle(.borderless)
+      .foregroundStyle(.tertiary)
+      .help("Not saved to a file; disappears when the app quits. Click to save it.")
     }
   }
 }
