@@ -1,6 +1,6 @@
 # Project overview
 
-Live Transcriber is a macOS GUI app (SwiftUI, SwiftPM-only, macOS 26+) for
+LiveTranscriber is a macOS GUI app (SwiftUI, SwiftPM-only, macOS 26+) for
 real-time on-device speech transcription via **SpeechAnalyzer** /
 **SpeechTranscriber** / **SpeechDetector**. It captures the microphone
 (AVCaptureSession) and/or another application's audio (ScreenCaptureKit),

@@ -30,13 +30,13 @@ struct MenuBarView: View {
 
     Divider()
 
-    Button("Open Live Transcriber") {
+    Button("Open LiveTranscriber") {
       showMainWindow()
     }
 
     Divider()
 
-    Button("Quit Live Transcriber") {
+    Button("Quit LiveTranscriber") {
       NSApp.terminate(nil)
     }
   }

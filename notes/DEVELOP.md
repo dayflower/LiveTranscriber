@@ -1,6 +1,6 @@
 # Development
 
-Technical notes on how Live Transcriber is put together. User-facing
+Technical notes on how LiveTranscriber is put together. User-facing
 documentation lives in [`../README.md`](../README.md).
 
 ## Toolchain & workflow

@@ -64,6 +64,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 	<string>$BUNDLE_ID</string>
 	<key>CFBundleName</key>
 	<string>$APP_NAME</string>
+	<key>CFBundleDisplayName</key>
+	<string>$APP_NAME</string>
 	<key>CFBundleExecutable</key>
 	<string>$APP_NAME</string>
 	<key>CFBundlePackageType</key>
@@ -79,13 +81,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Live Transcriber captures your microphone to transcribe speech in real time. Audio is never saved.</string>
+	<string>LiveTranscriber captures your microphone to transcribe speech in real time. Audio is never saved.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Live Transcriber reads your calendar events to suggest session names and durations.</string>
+	<string>LiveTranscriber reads your calendar events to suggest session names and durations.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Live Transcriber reads your calendar events to suggest session names and durations.</string>
+	<string>LiveTranscriber reads your calendar events to suggest session names and durations.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Live Transcriber transcribes captured audio on-device.</string>
+	<string>LiveTranscriber transcribes captured audio on-device.</string>
 </dict>
 </plist>
 PLIST

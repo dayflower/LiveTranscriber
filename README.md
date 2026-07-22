@@ -1,4 +1,4 @@
-# Live Transcriber
+# LiveTranscriber
 
 A macOS app for real-time, fully on-device speech transcription. It
 transcribes your microphone, the audio of another application (Zoom,

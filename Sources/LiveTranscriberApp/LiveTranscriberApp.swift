@@ -7,7 +7,7 @@ struct LiveTranscriberApp: App {
   @State private var model = AppModel()
 
   var body: some Scene {
-    Window("Live Transcriber", id: "main") {
+    Window("LiveTranscriber", id: "main") {
       MainWindow()
         .environment(model)
         .onAppear { AppDelegate.model = model }
