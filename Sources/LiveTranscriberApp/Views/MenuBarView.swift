@@ -36,6 +36,10 @@ struct MenuBarView: View {
 
     Divider()
 
+    Text(AppInfo.displayNameWithVersion)
+
+    Divider()
+
     Button("Quit LiveTranscriber") {
       NSApp.terminate(nil)
     }
