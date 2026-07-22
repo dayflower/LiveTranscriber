@@ -171,7 +171,7 @@ private struct MemorySessionRow: View {
       if let onDelete {
         DeleteButton(help: "Delete this session", action: onDelete)
       }
-      Image(systemName: "internaldrive")
+      Image(systemName: "memorychip")
         .foregroundStyle(.tertiary)
         .help("Not saved to a file; disappears when the app quits.")
     }
