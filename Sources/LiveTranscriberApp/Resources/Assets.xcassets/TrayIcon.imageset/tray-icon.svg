@@ -1,0 +1,19 @@
+<svg width="720" height="720" viewBox="152 152 720 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="knockout" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <path d="M328 212 h368 a96 96 0 0 1 96 96 v288 a96 96 0 0 1 -96 96
+               h-286 l-96 108 a20 20 0 0 1 -34 -18 l16 -104
+               a96 96 0 0 1 -66 -82 v-288 a96 96 0 0 1 96 -96 z"
+            fill="#FFFFFF"/>
+      <g fill="#000000">
+        <rect x="356" y="408" width="40" height="120" rx="20"/>
+        <rect x="426" y="366" width="40" height="220" rx="20"/>
+        <rect x="496" y="302" width="40" height="300" rx="20"/>
+        <rect x="566" y="318" width="40" height="220" rx="20"/>
+        <rect x="636" y="376" width="40" height="120" rx="20"/>
+      </g>
+    </mask>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" fill="#000000" mask="url(#knockout)"/>
+</svg>

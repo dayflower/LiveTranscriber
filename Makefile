@@ -8,15 +8,20 @@
 
 SWIFT_SOURCES := Package.swift Sources Tests
 
+# The Swift Build system compiles asset catalogs (Assets.xcassets -> Assets.car)
+# and lays out a proper resource bundle; the native build system does not, which
+# leaves the tray icon unusable. Keep every SwiftPM invocation on it.
+SWIFT_BUILD_SYSTEM := --build-system swiftbuild
+
 all: build
 
 # Debug build (compile check)
 build:
-	swift build
+	swift build $(SWIFT_BUILD_SYSTEM)
 
 # Unit tests
 test:
-	swift test
+	swift test $(SWIFT_BUILD_SYSTEM)
 
 # Release build wrapped into build/LiveTranscriber.app
 # (pass SIGN_ID=<cert name> to sign with a stable identity instead of ad-hoc)
@@ -25,7 +30,7 @@ app:
 
 # Quick dev loop: build and launch directly with SwiftPM
 run:
-	swift run LiveTranscriber
+	swift run $(SWIFT_BUILD_SYSTEM) LiveTranscriber
 
 # Formatting check (fails when violations are found)
 check:

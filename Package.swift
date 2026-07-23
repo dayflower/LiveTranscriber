@@ -31,6 +31,9 @@ let package = Package(
         "LiveTranscriberCore",
         .product(name: "Yams", package: "Yams"),
       ],
+      resources: [
+        .process("Resources")
+      ],
       swiftSettings: [
         .swiftLanguageMode(.v6),
         .treatAllWarnings(as: .error),

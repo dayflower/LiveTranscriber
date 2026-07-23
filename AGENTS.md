@@ -13,8 +13,10 @@ optionally mixed into one stream.
 
 ## Requirements
 
-- macOS 26.0 or later, Swift 6.2 toolchain (Xcode Command Line Tools are
-  enough; no Xcode project).
+- macOS 26.0 or later, Swift 6.2 toolchain; no Xcode project. Every `make`
+  target builds with the Swift Build system (`--build-system swiftbuild`) so the
+  tray-icon asset catalog is compiled; that needs a full Xcode install. Building
+  with the native system instead leaves the icon falling back to SF Symbols.
 - TCC permissions (Microphone / Screen & System Audio Recording / Calendars)
   are attributed per bundle identifier: with `make run` (`swift run`) they go
   to the launching terminal; the end-user permission flow only shows when the

@@ -108,8 +108,9 @@ record when registering speakers).
 
 ## Install & run
 
-Build the app bundle from source (a Swift 6.2 toolchain is required; Xcode
-Command Line Tools are enough):
+Build the app bundle from source (a Swift 6.2 toolchain and a full Xcode
+install are required — the build compiles the app's asset catalog via the Swift
+Build system):
 
 ```sh
 ./scripts/make-app.sh --run    # builds build/LiveTranscriber.app and opens it

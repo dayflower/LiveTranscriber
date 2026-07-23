@@ -5,7 +5,9 @@ documentation lives in [`../README.md`](../README.md).
 
 ## Toolchain & workflow
 
-- Swift 6.2 toolchain (Xcode Command Line Tools are enough), macOS 26 SDK.
+- Swift 6.2 toolchain, macOS 26 SDK. `make` builds with the Swift Build system
+  (`--build-system swiftbuild`), which compiles the tray-icon asset catalog and
+  needs a full Xcode install.
 - SwiftPM only; no Xcode project.
 
 ```sh
@@ -35,6 +37,26 @@ so no sandbox entitlements and no security-scoped bookmarks are needed).
 Screen Recording has no Info.plist key; the Screen & System Audio Recording
 prompt is triggered by the first `SCShareableContent` access (listing
 capturable apps in the new-session sheet).
+
+The menu-bar (status item) icons live in an asset catalog
+(`Sources/LiveTranscriberApp/Resources/Assets.xcassets`: `TrayIcon` idle,
+`TrayIconRecording` recording), bundled as a SwiftPM resource and loaded via
+`Bundle.module.image(forResource:)` (`TrayIcon`). Both imagesets are vector SVGs
+with a template rendering intent, so the system recolors them; the states are
+told apart by shape (waveform vs a `record.circle` mark).
+
+This is why the build uses the **Swift Build system** (`make` passes
+`--build-system swiftbuild`). It compiles `Assets.xcassets` into a proper
+resource bundle — `Contents/Resources/Assets.car` plus a generated
+`Contents/Info.plist` (CoreUI only reads a catalog from a bundle that has an
+identifier) — and its generated `Bundle.module` accessor checks
+`Bundle.main.resourceURL` first, so it resolves inside the packaged app. The
+native build system does **neither**: it copies the catalog verbatim and its
+executable accessor only knows a hardcoded `.build` path, so the icons then fail
+to load and `TrayIcon` falls back to SF Symbols (`waveform` / `record.circle`).
+`scripts/make-app.sh` just copies the compiled
+`live-transcriber_LiveTranscriberApp.bundle` into `Contents/Resources/`. Add any
+new SwiftPM resource target the same way.
 
 By default the bundle is **ad-hoc signed**. Every rebuild changes the CDHash,
 and macOS may then drop the app's TCC grants — Screen Recording in particular

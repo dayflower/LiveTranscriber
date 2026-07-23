@@ -40,14 +40,29 @@ for arg in "$@"; do
     esac
 done
 
-swift build -c "$CONFIGURATION"
+# Build with the Swift Build system: it compiles Assets.xcassets into a proper
+# resource bundle (Assets.car + Info.plist), which the native build system does
+# not — see notes/DEVELOP.md.
+BUILD_SYSTEM=(--build-system swiftbuild)
 
-BIN_PATH="$(swift build -c "$CONFIGURATION" --show-bin-path)/$EXECUTABLE_PRODUCT"
+swift build "${BUILD_SYSTEM[@]}" -c "$CONFIGURATION"
+
+BIN_DIR="$(swift build "${BUILD_SYSTEM[@]}" -c "$CONFIGURATION" --show-bin-path)"
+BIN_PATH="$BIN_DIR/$EXECUTABLE_PRODUCT"
 APP_DIR="build/$APP_NAME.app"
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
+
+# SwiftPM resource bundle (tray icon, etc.). The Swift Build system already
+# compiled it into Contents/Resources/Assets.car with a generated Info.plist;
+# Bundle.module resolves it via Bundle.main.resourceURL, so it must live in
+# Contents/Resources.
+RESOURCE_BUNDLE="live-transcriber_LiveTranscriberApp.bundle"
+if [[ -d "$BIN_DIR/$RESOURCE_BUNDLE" ]]; then
+    cp -R "$BIN_DIR/$RESOURCE_BUNDLE" "$APP_DIR/Contents/Resources/$RESOURCE_BUNDLE"
+fi
 
 if [[ -f "Resources/AppIcon.icns" ]]; then
     cp "Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"

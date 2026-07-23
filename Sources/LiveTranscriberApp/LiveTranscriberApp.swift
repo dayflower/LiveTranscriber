@@ -48,10 +48,7 @@ struct LiveTranscriberApp: App {
       MenuBarView()
         .environment(model)
     } label: {
-      Image(
-        systemName: model.recording.phase == .recording
-          ? "recordingtape.circle.fill"
-          : "recordingtape.circle")
+      Image(nsImage: model.recording.phase == .recording ? TrayIcon.recording : TrayIcon.idle)
     }
 
     Settings {
