@@ -64,8 +64,18 @@ if [[ -d "$BIN_DIR/$RESOURCE_BUNDLE" ]]; then
     cp -R "$BIN_DIR/$RESOURCE_BUNDLE" "$APP_DIR/Contents/Resources/$RESOURCE_BUNDLE"
 fi
 
-if [[ -f "Resources/AppIcon.icns" ]]; then
-    cp "Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+# Compile the Icon Composer app icon (liquid glass, macOS 26). actool emits
+# AppIcon.icns (fallback) plus Assets.car (the liquid-glass rendering the
+# system reads via CFBundleIconName). Both land directly in Contents/Resources;
+# this Assets.car is separate from the tray-icon resource bundle above.
+if [[ -d "design/AppIcon.icon" ]]; then
+    xcrun actool "design/AppIcon.icon" \
+        --compile "$APP_DIR/Contents/Resources" \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$(mktemp -t appicon-partial).plist" \
+        --platform macosx \
+        --minimum-deployment-target 26.0 \
+        --output-format human-readable-text >/dev/null
 fi
 
 # Note: Screen Recording has no Info.plist usage-description key; the Screen &
@@ -94,6 +104,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>LiveTranscriber captures your microphone to transcribe speech in real time. Audio is never saved.</string>

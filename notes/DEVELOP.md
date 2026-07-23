@@ -58,6 +58,16 @@ to load and `TrayIcon` falls back to SF Symbols (`waveform` / `record.circle`).
 `live-transcriber_LiveTranscriberApp.bundle` into `Contents/Resources/`. Add any
 new SwiftPM resource target the same way.
 
+The **app icon** is an Icon Composer document (`design/AppIcon.icon`, liquid
+glass for macOS 26) rather than an asset-catalog imageset. `make-app.sh` runs
+`actool` on it at bundle-assembly time, emitting `AppIcon.icns` (the fallback)
+and a top-level `Contents/Resources/Assets.car` — distinct from the tray-icon
+sub-bundle above — that the system renders via `CFBundleIconName`
+(`CFBundleIconFile` points at the `.icns` for older lookups). It is compiled by
+`make-app.sh`, not the SwiftPM build, because the app icon must sit in the main
+bundle's `Resources` (not a `Bundle.module` sub-bundle) to be discoverable, and
+because the `.icon` document lives outside the SwiftPM resource tree.
+
 By default the bundle is **ad-hoc signed**. Every rebuild changes the CDHash,
 and macOS may then drop the app's TCC grants — Screen Recording in particular
 needs a manual re-toggle after rebuilds. For a smoother dev loop, create a
