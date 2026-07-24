@@ -13,6 +13,15 @@ record when registering speakers).
 
 ## Features
 
+- **Fully on-device & lightweight**: recognition is built on the compact,
+  hardware-accelerated speech models that ship with the OS and run on the
+  Neural Engine — not a large general-purpose model that pins a discrete GPU —
+  so it stays light on CPU, GPU, and battery while keeping latency low. It can
+  transcribe for hours in the background without weighing the machine down, and
+  needs no cloud service or server round-trip. The trade-off is accuracy: these
+  compact models are generally less accurate than the large, GPU-bound models,
+  so expect more mistakes on unusual terms, heavy accents, or noisy audio — the
+  design leans toward staying light and responsive for live use.
 - **Manual start/stop** with per-session choice of language, input microphone,
   and target application (or whole-system audio); mic and app audio can be
   mixed. Frequently used applications can be pinned as priority applications
