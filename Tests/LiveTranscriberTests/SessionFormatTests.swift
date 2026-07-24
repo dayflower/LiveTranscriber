@@ -172,7 +172,14 @@ struct SessionFormatTests {
 
   @Test
   func midnightCrossingTimestampRollsToNextDay() {
-    let started = SessionFileText.date(fromISO: "2026-07-11T23:50:00+09:00")!
+    // Anchor the session start to 23:50 in the current calendar's own time
+    // zone: HH:mm:ss timestamps are local wall clock and date(fromTimestamp:)
+    // reconstructs them with Calendar.current, so a fixed UTC offset here would
+    // make the rollover assertion depend on the machine's time zone.
+    var components = DateComponents()
+    (components.year, components.month, components.day) = (2026, 7, 11)
+    (components.hour, components.minute, components.second) = (23, 50, 0)
+    let started = Calendar.current.date(from: components)!
     let parsed = SessionFileText.date(fromTimestamp: "00:10:00", sessionStart: started)!
     #expect(parsed > started)
     #expect(abs(parsed.timeIntervalSince(started) - 20 * 60) < 1)
