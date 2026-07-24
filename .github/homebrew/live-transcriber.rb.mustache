@@ -1,0 +1,14 @@
+cask "live-transcriber" do
+  version "{{version}}"
+  sha256 "{{artifact.sha256}}"
+
+  url "{{artifact.url}}",
+      verified: "github.com/dayflower/live-transcriber/"
+  name "LiveTranscriber"
+  desc "Real-time on-device speech transcription menu bar app for macOS"
+  homepage "https://github.com/dayflower/live-transcriber"
+
+  depends_on macos: :tahoe
+
+  app "LiveTranscriber.app"
+end

@@ -47,6 +47,9 @@ needs a manual re-toggle).
   file writer, formats), `Calendar/`, `Settings/`, `Views/`.
 - `Tests/LiveTranscriberTests/` — swift-testing suites.
 - `scripts/make-app.sh` — bundle assembly (Info.plist generation, codesign).
+- `VERSION` — single source of truth for the app version; `make-app.sh` reads it
+  into the Info.plist. Bump it via `scripts/bump-version.sh`, which opens a PR
+  that `.github/workflows/release.yml` turns into a signed, notarized release.
 
 ## Conventions
 

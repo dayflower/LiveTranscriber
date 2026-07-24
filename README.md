@@ -108,6 +108,17 @@ record when registering speakers).
 
 ## Install & run
 
+### Homebrew
+
+```sh
+brew install --cask dayflower/tap/live-transcriber
+```
+
+The cask installs a signed and notarized `LiveTranscriber.app`, so Gatekeeper
+lets it run without a manual override.
+
+### Build from source
+
 Build the app bundle from source (a Swift 6.2 toolchain and a full Xcode
 install are required — the build compiles the app's asset catalog via the Swift
 Build system):
