@@ -77,6 +77,38 @@ self-signed code-signing certificate in Keychain Access and use it:
 SIGN_ID="My Dev Cert" make app
 ```
 
+### Versioning, CI & release
+
+The app version is a single value in the `VERSION` file at the repo root.
+`scripts/make-app.sh` reads it into both `CFBundleShortVersionString` and
+`CFBundleVersion` of the generated `Info.plist`, and `AppInfo.version` reads it
+back from the bundle at runtime (falling back to `"dev"` under `swift run`).
+
+GitHub Actions (`.github/workflows/`):
+
+- **`ci.yml`** — on every PR and push to `main`, runs `make check`, `make
+  build`, `make test` on `macos-26` (the runner needs Xcode 26 for the macOS 26
+  SDK and the Swift Build system). Warnings fail the build
+  (`treatAllWarnings(as: .error)` in `Package.swift`).
+- **`pinact.yml`** — verifies every third-party action is pinned to a full SHA.
+  Needs a GitHub App (`vars.ACTIONS_APP_ID`, `secrets.ACTIONS_APP_PRIVATE_KEY`).
+- **`release.yml`** — on push to `main`, reads `VERSION`; if the tag `v<version>`
+  does not yet exist, it imports a Developer ID certificate, builds with
+  `CODESIGN_IDENTITY` set (so `make-app.sh` signs with the hardened runtime and
+  a secure timestamp), notarizes and staples via `scripts/notarize-app.sh`, zips
+  the bundle, publishes a GitHub Release tagged `v<version>`, and updates the
+  Homebrew cask in `dayflower/homebrew-tap`. The tag is created last (by `gh
+  release create --target`), so a partial failure leaves no tag and the run is
+  retryable.
+
+Release secrets: `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`,
+`APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`,
+`HOMEBREW_GITHUB_API_TOKEN`.
+
+To cut a release, run `scripts/bump-version.sh <X.Y.Z | patch | minor | major>`
+from a clean `main`: it edits `VERSION` on a `bump-version-v<new>` branch and
+opens a PR. Merging that PR triggers `release.yml`.
+
 ## Package layout
 
 Two targets plus tests:

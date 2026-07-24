@@ -27,7 +27,8 @@ BUNDLE_ID="io.github.dayflower.live-transcriber"
 # Executable product name (Package.swift); also the app-menu title under
 # `swift run`, hence distinct from the LiveTranscriberApp target name.
 EXECUTABLE_PRODUCT="LiveTranscriber"
-VERSION="0.1.0"
+# Single source of truth for the app version (see scripts/bump-version.sh).
+VERSION="$(tr -d '[:space:]' < VERSION)"
 SIGN_ID="${SIGN_ID:--}"
 
 CONFIGURATION="release"
@@ -119,11 +120,22 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign "$SIGN_ID" \
-    --entitlements scripts/entitlements.plist \
-    "$APP_DIR"
-
-echo "built: $APP_DIR (configuration: $CONFIGURATION, signing: $SIGN_ID)"
+# Release signing (CI) sets CODESIGN_IDENTITY to a Developer ID identity and adds
+# the hardened runtime + secure timestamp that notarization requires. Local dev
+# leaves it unset and uses SIGN_ID (ad-hoc by default, or a self-signed cert to
+# keep TCC grants stable across rebuilds).
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    codesign --force --options runtime --timestamp \
+        --sign "$CODESIGN_IDENTITY" \
+        --entitlements scripts/entitlements.plist \
+        "$APP_DIR"
+    echo "built: $APP_DIR (configuration: $CONFIGURATION, signing: $CODESIGN_IDENTITY, hardened runtime)"
+else
+    codesign --force --sign "$SIGN_ID" \
+        --entitlements scripts/entitlements.plist \
+        "$APP_DIR"
+    echo "built: $APP_DIR (configuration: $CONFIGURATION, signing: $SIGN_ID)"
+fi
 
 if [[ "$OPEN_AFTER_BUILD" -eq 1 ]]; then
     open "$APP_DIR"

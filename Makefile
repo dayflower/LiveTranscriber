@@ -4,7 +4,7 @@
 # attributed to the launching terminal. To exercise the end-user permission
 # flow, build the bundle (`make app`) and open it (`./scripts/make-app.sh --run`).
 
-.PHONY: all build test app run check fix clean
+.PHONY: all build test app notarize run check fix clean
 
 SWIFT_SOURCES := Package.swift Sources Tests
 
@@ -27,6 +27,11 @@ test:
 # (pass SIGN_ID=<cert name> to sign with a stable identity instead of ad-hoc)
 app:
 	./scripts/make-app.sh
+
+# Notarize and staple the built bundle (needs NOTARY_* env; see the script).
+# Sign with a Developer ID first: CODESIGN_IDENTITY=<id> make app
+notarize: app
+	./scripts/notarize-app.sh
 
 # Quick dev loop: build and launch directly with SwiftPM
 run:
