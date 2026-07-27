@@ -13,6 +13,12 @@ struct LiveTranscriberApp: App {
         .onAppear { AppDelegate.model = model }
     }
     .commands {
+      CommandGroup(replacing: .appInfo) {
+        Button("About LiveTranscriber") {
+          AboutPanel.show()
+        }
+      }
+
       CommandGroup(after: .newItem) {
         Button("New Recording…") {
           model.showingNewSessionSheet = true
