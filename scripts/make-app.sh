@@ -124,6 +124,11 @@ PLIST
 # the hardened runtime + secure timestamp that notarization requires. Local dev
 # leaves it unset and uses SIGN_ID (ad-hoc by default, or a self-signed cert to
 # keep TCC grants stable across rebuilds).
+#
+# The hardened runtime gates protected resources on entitlements even though the
+# app is not sandboxed, which is why entitlements.plist is not empty; see
+# notes/DEVELOP.md. Keep that file free of comments — codesign embeds its bytes
+# verbatim into the signature of every architecture slice.
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
     codesign --force --options runtime --timestamp \
         --sign "$CODESIGN_IDENTITY" \
