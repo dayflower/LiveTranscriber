@@ -68,6 +68,15 @@ sub-bundle above — that the system renders via `CFBundleIconName`
 bundle's `Resources` (not a `Bundle.module` sub-bundle) to be discoverable, and
 because the `.icon` document lives outside the SwiftPM resource tree.
 
+The About panel (`AboutPanel`) is the standard AppKit one, but its icon, name
+and version are passed as explicit options: AppKit's own inference yields a
+generic icon, and under `swift run` there is no Info.plist to infer from at all.
+`AppInfo.icon` reads the bundle's compiled `AppIcon.icns` first and falls back
+to the `AppIconImage` imageset in the tray-icon catalog — a **copy** of
+`design/AppIcon.icon/Assets/icon.svg` (without the Icon Composer background),
+kept only so the unbundled dev build shows something. Update both when the
+artwork changes.
+
 By default the bundle is **ad-hoc signed**. Every rebuild changes the CDHash,
 and macOS may then drop the app's TCC grants — Screen Recording in particular
 needs a manual re-toggle after rebuilds. For a smoother dev loop, create a
