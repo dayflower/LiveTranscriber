@@ -21,6 +21,11 @@ optionally mixed into one stream.
   are attributed per bundle identifier: with `make run` (`swift run`) they go
   to the launching terminal; the end-user permission flow only shows when the
   app runs from `build/LiveTranscriber.app` (`./scripts/make-app.sh --run`).
+- Release builds are signed with the hardened runtime, which gates protected
+  resources on its own entitlements even though the app is not sandboxed. Any
+  new TCC-gated API needs its entitlement added to `scripts/entitlements.plist`
+  (mic, calendars are there) on top of the Info.plist usage description —
+  otherwise access is denied silently in released builds only.
 
 ## Build, test, lint
 

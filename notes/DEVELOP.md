@@ -31,12 +31,29 @@ iteration, but the grants are then attributed to the **launching terminal**
 permission flow, run the bundle via `./scripts/make-app.sh --run`.
 `scripts/make-app.sh` assembles the bundle: it builds with SwiftPM, generates
 `Contents/Info.plist` (bundle id `io.github.dayflower.live-transcriber`, usage
-descriptions), and codesigns with `scripts/entitlements.plist` (not sandboxed,
-so no sandbox entitlements and no security-scoped bookmarks are needed).
+descriptions), and codesigns with `scripts/entitlements.plist`. The app is not
+sandboxed, so no sandbox entitlements and no security-scoped bookmarks are
+needed, but release builds run under the **hardened runtime** (notarization
+requires it) and that gates protected resources independently of the sandbox:
+`com.apple.security.device.audio-input` and
+`com.apple.security.personal-information.calendars` must be in the entitlements
+or the request is denied *before* TCC prompts — the app then never shows up in
+System Settings > Privacy & Security at all. Dev builds are ad-hoc signed
+without the hardened runtime, so the symptom only appears in released builds.
+After fixing such a mismatch, reset the stale state with
+`tccutil reset Microphone io.github.dayflower.live-transcriber`.
 
-Screen Recording has no Info.plist key; the Screen & System Audio Recording
-prompt is triggered by the first `SCShareableContent` access (listing
-capturable apps in the new-session sheet).
+`entitlements.plist` is an input to `codesign`, not a file copied into the
+bundle — but `codesign` embeds its **raw bytes** into the signature of every
+architecture slice, so keep it free of comments (put the rationale here
+instead). `codesign -d --entitlements -` prints a re-serialized DER view and
+will not show what is actually stored; read the blob out of the binary to see
+that. Entitlements are sealed by the signature, so changing them requires a
+re-sign, i.e. they only reach users through a new release build.
+
+Screen Recording has no Info.plist key and no hardened-runtime entitlement; the
+Screen & System Audio Recording prompt is triggered by the first
+`SCShareableContent` access (listing capturable apps in the new-session sheet).
 
 The menu-bar (status item) icons live in an asset catalog
 (`Sources/LiveTranscriberApp/Resources/Assets.xcassets`: `TrayIcon` idle,
