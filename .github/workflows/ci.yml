@@ -9,6 +9,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check:
     # macos-26 ships Xcode 26, which provides the macOS 26 SDK and the Swift
