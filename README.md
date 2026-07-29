@@ -11,6 +11,9 @@ Everything runs on your Mac using Apple's on-device speech recognition
 saved (the only audio stored is the short voice samples you explicitly
 record when registering speakers).
 
+<img src="images/screenshot.jpg" width="912"
+  alt="LiveTranscriber transcribing a session with speaker separation">
+
 ## Features
 
 - **Fully on-device & lightweight**: recognition is built on the compact,
