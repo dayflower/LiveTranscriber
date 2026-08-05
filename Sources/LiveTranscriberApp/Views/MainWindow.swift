@@ -13,11 +13,21 @@ struct MainWindow: View {
         if let session = model.displayedSession {
           TranscriptView(session: session)
         } else {
-          ContentUnavailableView(
-            "No Session",
-            systemImage: "waveform",
-            description: Text("Start recording to see the live transcript here.")
-          )
+          // A plain `ContentUnavailableView` isn't scroll-backed, so AppKit
+          // shows the toolbar separator here but auto-hides it once a
+          // transcript (an NSScrollView) is on screen. Wrapping it in a
+          // `ScrollView` gives it the same NSScrollView backing so both
+          // states get the same (separator-less) chrome.
+          GeometryReader { proxy in
+            ScrollView {
+              ContentUnavailableView(
+                "No Session",
+                systemImage: "waveform",
+                description: Text("Start recording to see the live transcript here.")
+              )
+              .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+          }
         }
       }
       .safeAreaInset(edge: .bottom, spacing: 0) {
