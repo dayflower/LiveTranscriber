@@ -58,6 +58,10 @@ struct MarkdownSessionFormat: SessionFormat {
     return snapshot
   }
 
+  func readHeader(_ text: String) throws -> SessionSnapshot {
+    try SessionFileText.readFrontmatterHeader(text)
+  }
+
   /// Split a leading `**[HH:mm:ss]**` marker off a paragraph.
   private static func splitTimestamp(_ paragraph: String) -> (timestamp: String?, text: String) {
     guard paragraph.hasPrefix("**["),

@@ -90,6 +90,124 @@ struct SessionFormatTests {
   }
 
   @Test(arguments: SessionFormatID.allCases)
+  func readHeaderMatchesFullReadMetadata(formatID: SessionFormatID) throws {
+    // The folder scan builds sidebar rows from `readHeader`, so it has to
+    // agree with `read` on every field a row shows.
+    let format = formatID.format
+    let original = makeSnapshot(timestamps: true)
+    let text = format.serialize(original)
+
+    let full = try format.read(text)
+    let header = try format.readHeader(text)
+
+    #expect(header.name == full.name)
+    #expect(header.startedAt == full.startedAt)
+    #expect(header.endedAt == full.endedAt)
+    #expect(header.localeIdentifier == full.localeIdentifier)
+    #expect(header.sourceDescription == full.sourceDescription)
+    #expect(header.estimatedDuration == full.estimatedDuration)
+    #expect(header.timestampsEnabled == full.timestampsEnabled)
+    // The point of the fast path: the body is never parsed.
+    #expect(header.segments.isEmpty)
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func readHeaderWorksOnAStreamedFileAndItsPrefix(formatID: SessionFormatID) throws {
+    // The scan reads a bounded prefix of the file, and it may hit a session
+    // still being appended to, whose header carries no end time yet.
+    let format = formatID.format
+    var streamed = makeSnapshot(timestamps: true)
+    streamed.endedAt = nil
+
+    let head = format.header(for: streamed)
+    var text = head
+    for segment in streamed.segments {
+      text += format.segmentChunk(segment, timestampsEnabled: true)
+    }
+
+    for candidate in [text, head] {
+      let header = try format.readHeader(candidate)
+      #expect(header.name == streamed.name)
+      #expect(abs(header.startedAt.timeIntervalSince(streamed.startedAt)) < 1)
+      #expect(header.endedAt == nil)
+      #expect(header.segments.isEmpty)
+    }
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func readHeaderRejectsForeignFiles(formatID: SessionFormatID) {
+    // A rejected header sends the scan to the full-parse fallback, which is
+    // what finally decides a file is not ours.
+    #expect(throws: SessionFormatError.self) {
+      try formatID.format.readHeader("just some\nrandom file contents\n")
+    }
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func readHeaderRejectsATruncatedBlock(formatID: SessionFormatID) {
+    // The probe reads a bounded prefix, so a header that does not fit must
+    // fail rather than decode into metadata missing its later fields — that
+    // rejection is what routes the file to the full-parse fallback. YAML
+    // needs this most: a mapping stays valid when it is cut short.
+    let format = formatID.format
+    let header = format.header(for: makeSnapshot(timestamps: true))
+    let cut = header.index(header.startIndex, offsetBy: header.count / 2)
+
+    #expect(throws: SessionFormatError.self) {
+      try format.readHeader(String(header[..<cut]))
+    }
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func headerFitsTheProbeWithRoomToSpare(formatID: SessionFormatID) {
+    // A header that outgrows the probe still parses, but only by falling back
+    // to reading the whole transcript on every scan — the cost this fast path
+    // exists to avoid. `name` is bounded by the file-name limit it is derived
+    // from, so pad it there to stand in for the worst realistic case.
+    var snapshot = makeSnapshot(timestamps: true)
+    snapshot.name = String(repeating: "あ", count: 85)  // 255 bytes in UTF-8
+    snapshot.sourceDescription = String(repeating: "x", count: 255)
+
+    let header = formatID.format.header(for: snapshot)
+    #expect(header.utf8.count < SessionFileText.headerProbeByteCount / 2)
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
+  func headTextProbeYieldsAParseableHeader(formatID: SessionFormatID) throws {
+    // End to end: what the scan actually reads off disk, for a file whose
+    // body is far larger than the probe window.
+    let format = formatID.format
+    var original = makeSnapshot(timestamps: true)
+    let filler = String(repeating: "あ", count: 200)
+    original.segments = (0..<400).map { index in
+      TranscriptSegment(
+        text: "\(filler) \(index)",
+        date: original.startedAt.addingTimeInterval(Double(index)),
+        audioStart: nil,
+        audioEnd: nil,
+        speaker: "Mic"
+      )
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("headprobe-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("session.\(formatID.fileExtension)")
+    try Data(format.serialize(original).utf8).write(to: url)
+
+    let size = try #require(
+      try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+    #expect(size > SessionFileText.headerProbeByteCount)
+
+    let head = try #require(SessionFileText.headText(of: url))
+    let header = try format.readHeader(head)
+    #expect(header.name == original.name)
+    #expect(abs(header.startedAt.timeIntervalSince(original.startedAt)) < 1)
+    #expect(header.segments.isEmpty)
+  }
+
+  @Test(arguments: SessionFormatID.allCases)
   func legacyFilesParseWithNilSpeaker(formatID: SessionFormatID) throws {
     // Files written before speaker separation existed must keep parsing,
     // with every segment unattributed — including text that superficially

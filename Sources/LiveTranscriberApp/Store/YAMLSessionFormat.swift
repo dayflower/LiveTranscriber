@@ -103,10 +103,11 @@ struct YAMLSessionFormat: SessionFormat {
   func read(_ text: String) throws -> SessionSnapshot {
     guard
       let file = try? YAMLDecoder().decode(FileContent.self, from: text),
-      let startedAt = SessionFileText.date(fromISO: file.started)
+      var snapshot = Self.snapshot(from: file)
     else { throw SessionFormatError.unreadable }
+    let startedAt = snapshot.startedAt
 
-    let segments = (file.segments ?? []).map { entry in
+    snapshot.segments = (file.segments ?? []).map { entry in
       TranscriptSegment(
         text: entry.text,
         date: entry.date.flatMap { SessionFileText.date(fromISO: $0) } ?? startedAt,
@@ -115,7 +116,37 @@ struct YAMLSessionFormat: SessionFormat {
         speaker: entry.speaker
       )
     }
+    return snapshot
+  }
 
+  func readHeader(_ text: String) throws -> SessionSnapshot {
+    guard
+      let metadata = Self.metadataPrefix(of: text),
+      let file = try? YAMLDecoder().decode(FileContent.self, from: metadata),
+      let snapshot = Self.snapshot(from: file)
+    else { throw SessionFormatError.unreadable }
+    return snapshot
+  }
+
+  /// The metadata mapping alone, cut before the `segments` key so the decoder
+  /// never walks the body. Both that key and every sequence item under it sit
+  /// at column 0, so the delimiter is a line equal to `segments:`.
+  ///
+  /// Requiring that delimiter is what makes the header probe safe: a YAML
+  /// mapping stays valid when it is cut short, so without it a truncated
+  /// prefix would decode into metadata that silently lost its later keys.
+  /// `nil` sends the caller to the full parse instead.
+  private static func metadataPrefix(of text: String) -> String? {
+    var lines: [Substring] = []
+    for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+      if line == "segments:" { return lines.joined(separator: "\n") }
+      lines.append(line)
+    }
+    return nil
+  }
+
+  private static func snapshot(from file: FileContent) -> SessionSnapshot? {
+    guard let startedAt = SessionFileText.date(fromISO: file.started) else { return nil }
     return SessionSnapshot(
       name: file.name,
       startedAt: startedAt,
@@ -124,7 +155,7 @@ struct YAMLSessionFormat: SessionFormat {
       sourceDescription: file.source ?? "",
       estimatedDuration: file.estimatedDuration,
       timestampsEnabled: file.timestamps != false,
-      segments: segments
+      segments: []
     )
   }
 

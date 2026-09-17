@@ -40,6 +40,10 @@ final class AppModel {
     self.store = SessionStore(settings: settings)
 
     recording.onSessionStarted = { [weak self] session, plan in
+      // Creating the session file would otherwise wake the folder watcher
+      // just as the analyzer starts; the store folds its own writes in
+      // directly, so nothing needs a scan until recording stops.
+      self?.store.suspendRefresh()
       self?.beginWriting(session, saveToFile: plan.saveToFile)
     }
     recording.onSegmentFinalized = { [weak self] _, segment in
@@ -47,6 +51,7 @@ final class AppModel {
     }
     recording.onSessionFinished = { [weak self] session in
       self?.sessionFinished(session)
+      self?.store.resumeRefresh()
     }
 
     Task { await store.refresh() }
@@ -159,12 +164,13 @@ final class AppModel {
   private func sessionFinished(_ session: TranscriptSession) {
     if let writer {
       self.writer = nil
+      let streamedURL = session.fileURL
       do {
         let url = try writer.finalize(session.makeSnapshot())
         session.fileURL = url
         fileSessions[url] = session
         selection = .file(url)
-        Task { await store.refresh() }
+        store.noteWrite(at: url, replacing: streamedURL)
         return
       } catch {
         report(error, "Could not finalize the transcript file")
@@ -207,7 +213,7 @@ final class AppModel {
       if selection == .memory(session.id) {
         selection = .file(url)
       }
-      Task { await store.refresh() }
+      store.noteWrite(at: url)
     } catch {
       report(error, "Could not save the transcript file")
     }
@@ -310,7 +316,7 @@ final class AppModel {
           selection = .file(newURL)
         }
       }
-      Task { await store.refresh() }
+      store.noteWrite(at: newURL, replacing: oldURL)
     } catch {
       report(error, "Could not rename the transcript file")
     }
