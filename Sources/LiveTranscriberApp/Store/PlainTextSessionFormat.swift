@@ -57,6 +57,10 @@ struct PlainTextSessionFormat: SessionFormat {
     return snapshot
   }
 
+  func readHeader(_ text: String) throws -> SessionSnapshot {
+    try SessionFileText.readFrontmatterHeader(text)
+  }
+
   /// Split a leading `[HH:mm:ss]` marker off a line.
   private static func splitTimestamp(_ line: String) -> (timestamp: String?, text: String) {
     guard line.hasPrefix("["), let closing = line.firstIndex(of: "]") else {

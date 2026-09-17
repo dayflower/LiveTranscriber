@@ -12,6 +12,8 @@ struct MainWindow: View {
       Group {
         if let session = model.displayedSession {
           TranscriptView(session: session)
+        } else if model.isLoadingSelection {
+          SessionLoadingView(summary: model.selectedSummary)
         } else {
           // A plain `ContentUnavailableView` isn't scroll-backed, so AppKit
           // shows the toolbar separator here but auto-hides it once a

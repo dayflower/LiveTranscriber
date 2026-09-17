@@ -72,6 +72,14 @@ protocol SessionFormat: Sendable {
   /// files this format cannot interpret (foreign/edited files are skipped by
   /// the store).
   func read(_ text: String) throws -> SessionSnapshot
+
+  /// Parse just the metadata block into a snapshot with no segments. Every
+  /// format writes that block at the head of the file, so the folder scan —
+  /// which only needs the sidebar fields — can work off a bounded prefix
+  /// instead of the whole transcript. `text` may therefore be truncated
+  /// (always on a line boundary); throw `unreadable` when the block is not
+  /// complete in it and the caller will retry with `read`.
+  func readHeader(_ text: String) throws -> SessionSnapshot
 }
 
 extension SessionFormat {
@@ -145,6 +153,34 @@ enum SessionFileText {
       && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == " " || $0 == "_" || $0 == "-" }
   }
 
+  // MARK: Header probing
+
+  /// How many bytes of a session file the folder scan reads to find the
+  /// metadata block. One page, which is also the smallest read that costs
+  /// anything less than a larger one: the block every format writes runs
+  /// under a kilobyte (the name is bounded by the 255-byte file-name limit it
+  /// is derived from), so this is several times the room it needs. A header
+  /// that still does not fit falls back to a full read — every format's
+  /// `readHeader` requires the block's terminator, so a prefix that cuts one
+  /// short is rejected rather than half-parsed.
+  static let headerProbeByteCount = 4 * 1024
+
+  /// The head of `url` decoded as UTF-8, cut at a line boundary. Newline
+  /// bytes never occur inside a multi-byte UTF-8 sequence, so cutting there
+  /// always leaves a decodable string.
+  static func headText(of url: URL) -> String? {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? handle.close() }
+    guard
+      let data = try? handle.read(upToCount: headerProbeByteCount),
+      !data.isEmpty
+    else { return nil }
+    // A short read means the whole file fit, so there is nothing to trim.
+    if data.count < headerProbeByteCount { return String(data: data, encoding: .utf8) }
+    guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return nil }
+    return String(data: data[..<lastNewline], encoding: .utf8)
+  }
+
   // MARK: Frontmatter
 
   /// Render a `--- key: value ---` frontmatter block shared by the Markdown
@@ -187,6 +223,15 @@ enum SessionFileText {
       fields[key] = value
     }
     return (fields, text[closingRange.upperBound...])
+  }
+
+  /// `SessionFormat.readHeader` for the two frontmatter-based formats.
+  static func readFrontmatterHeader(_ text: String) throws -> SessionSnapshot {
+    guard
+      let (fields, _) = parseFrontmatter(text),
+      let snapshot = snapshot(fromFrontmatter: fields)
+    else { throw SessionFormatError.unreadable }
+    return snapshot
   }
 
   /// Build a snapshot (without segments) from frontmatter fields; `nil` when

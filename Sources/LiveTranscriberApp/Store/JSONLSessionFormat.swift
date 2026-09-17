@@ -60,12 +60,11 @@ struct JSONLSessionFormat: SessionFormat {
 
     guard
       let metaLine = lines.popFirst(),
-      let meta = try? decoder.decode(MetaLine.self, from: Data(metaLine.utf8)),
-      meta.type == "meta",
-      let startedAt = SessionFileText.date(fromISO: meta.started)
+      var snapshot = Self.snapshot(fromMetaLine: metaLine, decoder: decoder)
     else { throw SessionFormatError.unreadable }
+    let startedAt = snapshot.startedAt
 
-    let segments: [TranscriptSegment] = lines.compactMap { line in
+    snapshot.segments = lines.compactMap { line in
       guard
         let decoded = try? decoder.decode(SegmentLine.self, from: Data(line.utf8)),
         decoded.type == "segment"
@@ -78,6 +77,28 @@ struct JSONLSessionFormat: SessionFormat {
         speaker: decoded.speaker
       )
     }
+    return snapshot
+  }
+
+  func readHeader(_ text: String) throws -> SessionSnapshot {
+    guard
+      let metaLine = text.split(
+        separator: "\n", maxSplits: 1, omittingEmptySubsequences: true
+      ).first,
+      let snapshot = Self.snapshot(fromMetaLine: metaLine, decoder: JSONDecoder())
+    else { throw SessionFormatError.unreadable }
+    return snapshot
+  }
+
+  /// Decode the leading `meta` line into a segment-less snapshot.
+  private static func snapshot(
+    fromMetaLine line: Substring, decoder: JSONDecoder
+  ) -> SessionSnapshot? {
+    guard
+      let meta = try? decoder.decode(MetaLine.self, from: Data(line.utf8)),
+      meta.type == "meta",
+      let startedAt = SessionFileText.date(fromISO: meta.started)
+    else { return nil }
 
     return SessionSnapshot(
       name: meta.name,
@@ -87,7 +108,7 @@ struct JSONLSessionFormat: SessionFormat {
       sourceDescription: meta.source ?? "",
       estimatedDuration: meta.estimatedDuration,
       timestampsEnabled: meta.timestamps,
-      segments: segments
+      segments: []
     )
   }
 

@@ -82,6 +82,11 @@ needs a manual re-toggle).
   crash leaves behind.
 - Session files: append while recording, atomic full rewrite at finalize.
   Do not introduce in-place header patching.
+- Every format must keep its metadata block at the **head** of the file and
+  parseable on its own via `readHeader`, agreeing with `read` on the sidebar
+  fields. The folder scan runs on every folder change and reads only a bounded
+  prefix; parsing whole transcripts there made the app unusable at a few
+  hundred sessions.
 - Session audio is never persisted anywhere. The only audio on disk is the
   speaker-enrollment samples the user explicitly records in Settings →
   Speakers (`SpeakerProfileStore`).

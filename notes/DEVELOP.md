@@ -169,7 +169,7 @@ Two targets plus tests:
   | --- | --- |
   | `AppModel.swift` | Root composition; wires recording ↔ file writing ↔ store; sidebar selection; export |
   | `Recording/` | `RecordingController` state machine (idle → preparing → recording → stopping), `TranscriptLabeler` (pipeline events → transcript, labeling and retro-labeling), `AutoStopMonitor`, `SilenceTracker`, `SpeakerAssigner` (turn → segment overlap matching) |
-  | `Store/` | `SessionStore` (folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL/YAML implementations |
+  | `Store/` | `SessionStore` (cached header-only folder scan + watch), `SessionFileWriter`, `SessionFormat` protocol + Markdown/plain-text/JSONL/YAML implementations |
   | `Calendar/` | `CalendarService` (EventKit) and the pure `CalendarMatcher` heuristic |
   | `Settings/AppSettings.swift` | UserDefaults-backed preferences |
   | `Views/` | `MainWindow` (NavigationSplitView), transcript view, toolbar, new-session sheet, menu bar, settings |
@@ -470,6 +470,62 @@ title/subtitle, the jump-to-latest overlay, and the pin-to-bottom `@State`.
   `.md`/`.txt`/`.jsonl`/`.yaml`, parses each file's header into a sidebar summary
   (unreadable/foreign files are skipped), and re-scans on directory events
   (`DispatchSource`, debounced). Full transcripts load on selection.
+- **The scan is header-only and cached** — it has to be, because it runs on
+  every folder change and the folder grows without bound. Three things keep it
+  off the critical path; all of them are load-bearing once a user has hundreds
+  of sessions:
+  - `SessionFormat.readHeader` parses the metadata block alone. Every format
+    writes that block first, so the scan reads a bounded prefix
+    (`SessionFileText.headText`, cut at a newline so the UTF-8 decode always
+    succeeds) instead of the whole transcript. A header that does not fit
+    falls back to a full `read`. Sidebar rows need four fields; parsing every
+    segment to get them cost ~30 ms per YAML file.
+  - The probe is **4 KB**, and its size is not free — scanning 400 YAML files
+    took 138/159/246/540 ms at 1/4/16/64 KB, because the bytes are decoded and
+    line-split whichever way. 4 KB is one page (a smaller read costs the same
+    I/O) and roughly six times the largest block any format writes: 235 B
+    typical, 692 B with a maximal name and source.
+    `headerFitsTheProbeWithRoomToSpare` guards that margin, since outgrowing
+    it degrades silently into full reads.
+  - Every `readHeader` **requires its block's terminator** — the closing
+    `---`, a complete JSON meta line, the `segments:` key — so a prefix that
+    cuts one short is rejected and retried as a full read. This is what makes
+    a small probe safe. YAML needs it most: a mapping stays valid when it is
+    truncated, so without the check a short prefix decodes into metadata that
+    silently lost `source`, `estimated_duration` and the rest.
+  - Results are cached per URL against a modification-date + size stamp,
+    including the `nil` of a foreign file, so an unchanged folder re-scans for
+    the price of one directory listing.
+  - Files the app writes itself never trigger a scan: `AppModel` calls
+    `SessionStore.noteWrite(at:replacing:)`, which folds that one file into
+    the cache. Only outside changes go through the watcher.
+- Re-scans are **suspended for the duration of a recording**
+  (`suspendRefresh`/`resumeRefresh`, driven by the recording callbacks).
+  Creating the session file is a directory entry change, so without this the
+  watcher fires a full scan exactly as the analyzer spins up and competes with
+  it for CPU. Appending segments does not touch the directory and never fired
+  events. The trade-off: a folder change made in Finder during a recording
+  shows up when recording stops.
+- `setNeedsRefresh` is the single entry point for re-scan requests. It
+  debounces bursts (400 ms) and folds a request that arrives *during* a scan
+  into exactly one follow-up pass, rather than clearing its flag before the
+  scan and letting finalize's several events queue concurrent scans.
+- **Loaded transcripts are cached, and the cache is bounded.** `SessionCache`
+  (a value type, so mutating it through `AppModel`'s stored property still
+  fires `@Observable` — moving it into a class of its own would quietly stop
+  the detail pane from updating when a load finishes) keeps the eight most
+  recently used sessions, and never evicts the one on screen. The bound
+  matters because the folder is unbounded: a loaded transcript costs roughly
+  1.5–2x its file size in memory (measured ~105 KB for an hour of speech,
+  ~210 KB for three), so caching every session a user ever clicked leaked the
+  whole history into a long-running process. Eight costs under 2 MB.
+- Selecting a stored session reads it asynchronously, so the detail pane has a
+  third state between "nothing" and "a transcript": `SessionLoadingView`. It
+  takes its title from the sidebar summary, which is already in hand, and
+  holds its spinner back 250 ms so the usual few-millisecond read shows
+  nothing at all. Like the empty state it must stay wrapped in
+  `GeometryReader` + `ScrollView` — see the note in `MainWindow` about the
+  toolbar separator.
 - `SessionFileWriter` writes the header once, appends each finalized segment
   immediately (a crash leaves a valid file up to the last final), and at
   session end atomically rewrites the whole file with complete frontmatter
