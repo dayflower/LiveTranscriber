@@ -510,6 +510,22 @@ title/subtitle, the jump-to-latest overlay, and the pin-to-bottom `@State`.
   debounces bursts (400 ms) and folds a request that arrives *during* a scan
   into exactly one follow-up pass, rather than clearing its flag before the
   scan and letting finalize's several events queue concurrent scans.
+- **Loaded transcripts are cached, and the cache is bounded.** `SessionCache`
+  (a value type, so mutating it through `AppModel`'s stored property still
+  fires `@Observable` — moving it into a class of its own would quietly stop
+  the detail pane from updating when a load finishes) keeps the eight most
+  recently used sessions, and never evicts the one on screen. The bound
+  matters because the folder is unbounded: a loaded transcript costs roughly
+  1.5–2x its file size in memory (measured ~105 KB for an hour of speech,
+  ~210 KB for three), so caching every session a user ever clicked leaked the
+  whole history into a long-running process. Eight costs under 2 MB.
+- Selecting a stored session reads it asynchronously, so the detail pane has a
+  third state between "nothing" and "a transcript": `SessionLoadingView`. It
+  takes its title from the sidebar summary, which is already in hand, and
+  holds its spinner back 250 ms so the usual few-millisecond read shows
+  nothing at all. Like the empty state it must stay wrapped in
+  `GeometryReader` + `ScrollView` — see the note in `MainWindow` about the
+  toolbar separator.
 - `SessionFileWriter` writes the header once, appends each finalized segment
   immediately (a crash leaves a valid file up to the last final), and at
   session end atomically rewrites the whole file with complete frontmatter

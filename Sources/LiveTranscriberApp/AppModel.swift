@@ -30,9 +30,13 @@ final class AppModel {
   var selection: SessionSelection?
   var showingNewSessionSheet = false
 
-  /// Fully loaded sessions from the save folder, keyed by file URL.
-  private var fileSessions: [URL: TranscriptSession] = [:]
+  /// Transcripts loaded from the save folder. Bounded — see `SessionCache`.
+  private var fileSessions = SessionCache()
   private var writer: SessionFileWriter?
+
+  /// The stored session being read right now, so the detail pane can say it
+  /// is loading instead of claiming there is nothing to show.
+  private var loadingURL: URL?
 
   init() {
     let settings = AppSettings()
@@ -124,15 +128,44 @@ final class AppModel {
     }
   }
 
+  /// The selected stored session's file, when the selection is one.
+  private var selectedFileURL: URL? {
+    if case .file(let url) = selection { return url }
+    return nil
+  }
+
+  /// The sidebar row for the selected stored session. It is already loaded,
+  /// so the detail pane can title itself before the transcript arrives.
+  var selectedSummary: SessionSummary? {
+    guard let url = selectedFileURL else { return nil }
+    return store.summaries.first { $0.url == url }
+  }
+
+  /// Whether the detail pane is waiting on the selected session's transcript.
+  var isLoadingSelection: Bool {
+    guard let url = selectedFileURL else { return false }
+    return loadingURL == url && fileSessions[url] == nil
+  }
+
   /// Kick off loading for a selected stored session (no-op when cached).
   func ensureSelectionLoaded() {
-    guard case .file(let url) = selection, fileSessions[url] == nil else { return }
+    guard case .file(let url) = selection else { return }
+    guard fileSessions[url] == nil else {
+      fileSessions.touch(url)
+      return
+    }
+    guard loadingURL != url else { return }
+    loadingURL = url
     Task {
       do {
-        fileSessions[url] = try await store.loadSession(at: url)
+        let session = try await store.loadSession(at: url)
+        fileSessions.insert(session, for: url, keeping: selectedFileURL)
       } catch {
         report(error, "Could not read \(url.lastPathComponent)")
       }
+      // Cleared either way: a failure that left this set would strand the
+      // pane on its loading state behind the error banner.
+      if loadingURL == url { loadingURL = nil }
     }
   }
 
@@ -168,8 +201,8 @@ final class AppModel {
       do {
         let url = try writer.finalize(session.makeSnapshot())
         session.fileURL = url
-        fileSessions[url] = session
         selection = .file(url)
+        fileSessions.insert(session, for: url, keeping: url)
         store.noteWrite(at: url, replacing: streamedURL)
         return
       } catch {
@@ -208,11 +241,11 @@ final class AppModel {
       try Data(text.utf8).write(to: url, options: .atomic)
 
       session.fileURL = url
-      fileSessions[url] = session
       memorySessions.removeAll { $0.id == session.id }
       if selection == .memory(session.id) {
         selection = .file(url)
       }
+      fileSessions.insert(session, for: url, keeping: selectedFileURL)
       store.noteWrite(at: url)
     } catch {
       report(error, "Could not save the transcript file")
@@ -245,7 +278,7 @@ final class AppModel {
     Task {
       do {
         let session = try await store.loadSession(at: url)
-        fileSessions[url] = session
+        fileSessions.insert(session, for: url, keeping: selectedFileURL)
         exportSession(session)
       } catch {
         report(error, "Could not read \(url.lastPathComponent)")
@@ -286,7 +319,7 @@ final class AppModel {
       report(error, "Could not move \(url.lastPathComponent) to the Trash")
       return
     }
-    fileSessions[url] = nil
+    fileSessions.remove(url)
     if selection == .file(url) {
       selection = nil
     }
@@ -310,8 +343,7 @@ final class AppModel {
     do {
       let newURL = try store.rename(session: session)
       if newURL != oldURL {
-        fileSessions[newURL] = session
-        fileSessions[oldURL] = nil
+        fileSessions.move(from: oldURL, to: newURL)
         if selection == .file(oldURL) {
           selection = .file(newURL)
         }
